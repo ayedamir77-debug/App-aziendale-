@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#1B6A86">
+<title>App Azienda</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#F6F7F8;color:#14202B;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px}
+#app{max-width:480px;margin:0 auto;padding:32px 20px 48px;min-height:100vh}
+h1{font-size:26px;line-height:32px;margin:12px 0 6px}
+h2{font-size:16px;margin:22px 0 10px}
+p{margin:0 0 12px;line-height:1.45;color:#4E5A66}
+.logo{width:44px;height:44px;border-radius:12px;background:#1B6A86}
+label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
+input{width:100%;height:48px;border:1px solid #C9D0D6;border-radius:10px;padding:0 14px;font-size:16px;background:#fff;font-family:inherit}
+input:focus{outline:2px solid #1B6A86;border-color:#1B6A86}
+button{height:48px;border-radius:10px;border:0;font-size:15px;font-weight:600;font-family:inherit;padding:0 18px;cursor:pointer}
+.primary{background:#1B6A86;color:#fff;width:100%;margin-top:20px;height:52px;font-size:16px}
+.secondary{background:#fff;color:#1B6A86;border:1px solid #1B6A86}
+.ghost{background:none;color:#1B6A86;height:auto;padding:6px 0}
+.tabs{display:flex;gap:8px;margin:20px 0 4px}
+.tab{flex:1;height:44px;background:#fff;border:1px solid #DDE2E6;color:#14202B}
+.tab.on{background:#1B6A86;color:#fff;border-color:#1B6A86}
+.card{background:#fff;border:1px solid #DDE2E6;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.row{display:flex;gap:10px;align-items:center;justify-content:space-between}
+.btns{display:flex;gap:10px;margin-top:12px}
+.btns button{flex:1;height:44px}
+.deny{background:#fff;color:#14202B;border:1px solid #C9D0D6}
+.ok{background:#1B6A86;color:#fff}
+.note{background:#E3F0F5;border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.4;color:#14202B;margin-top:16px}
+.err{background:#FDECEC;color:#8A1C1C;border-radius:10px;padding:12px 14px;margin-top:14px;font-size:14px}
+.code{font-size:22px;font-weight:700;letter-spacing:1px}
+.muted{font-size:14px;color:#4E5A66}
+.top{display:flex;justify-content:space-between;align-items:flex-start}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
+const SUPABASE_URL = "https://umnofttnykxbxfrnbwtw.supabase.co";
+const SUPABASE_KEY = "sb_publishable_fuMVp_I1eCypQGGZ9zLhVw_nw8GEvMz";
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+const root = document.getElementById("app");
+
+// piccolo helper: crea elementi senza innerHTML (testo sempre escapato)
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === "class") el.className = v;
+    else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else el.setAttribute(k, v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid == null || kid === false) continue;
+    el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function show(...nodes) { root.replaceChildren(...nodes); }
+function translate(msg) {
+  const m = String(msg || "");
+  if (m.includes("Codice azienda non valido")) return "Codice azienda non valido.";
+  if (m.includes("already registered")) return "Questa email è già registrata. Prova ad accedere.";
+  if (m.includes("Invalid login")) return "Email o password errate.";
+  if (m.includes("Password should")) return "La password deve avere almeno 6 caratteri.";
+  if (m.includes("Email not confirmed")) return "Conferma prima l'email (controlla la posta).";
+  return "Errore: " + m;
+}
+
+let mode = "login"; // login | owner | employee
+
+function authScreen(error, info) {
+  const val = (id) => (document.getElementById(id) || {}).value || "";
+  const tab = (m, label) => h("button", { class: "tab" + (mode === m ? " on" : ""), onclick: () => { mode = m; authScreen(); } }, label);
+  const fields = [];
+  if (mode !== "login") fields.push(h("label", { for: "name" }, "Nome e cognome"), h("input", { id: "name", autocomplete: "name" }));
+  if (mode === "owner") fields.push(h("label", { for: "company" }, "Nome dell'azienda"), h("input", { id: "company" }));
+  fields.push(
+    h("label", { for: "email" }, "Email"), h("input", { id: "email", type: "email", autocomplete: "email" }),
+    h("label", { for: "pass" }, "Password"), h("input", { id: "pass", type: "password", autocomplete: mode === "login" ? "current-password" : "new-password" })
+  );
+  if (mode === "employee") fields.push(h("label", { for: "code" }, "Codice azienda"), h("input", { id: "code", autocapitalize: "characters" }));
+  const titles = { login: "Accedi", owner: "Crea la tua azienda", employee: "Unisciti alla tua azienda" };
+  const labels = { login: "Accedi", owner: "Crea azienda", employee: "Invia richiesta" };
+  show(
+    h("div", { class: "logo" }),
+    h("h1", {}, titles[mode]),
+    mode === "employee" ? h("p", {}, "Usa il codice che ti ha dato il datore di lavoro.") : null,
+    h("div", { class: "tabs" }, tab("login", "Accedi"), tab("employee", "Dipendente"), tab("owner", "Datore")),
+    ...fields,
+    error ? h("div", { class: "err" }, error) : null,
+    info ? h("div", { class: "note" }, info) : null,
+    mode === "employee" ? h("div", { class: "note" }, "Il datore di lavoro dovrà approvare la richiesta prima che tu possa entrare.") : null,
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const email = val("email").trim(), password = val("pass");
+      try {
+        if (mode === "login") {
+          const { error } = await sb.auth.signInWithPassword({ email, password });
+          if (error) throw error;
+          return;
+        }
+        const data = { full_name: val("name").trim() };
+        if (mode === "owner") data.company_name = val("company").trim();
+        else data.join_code = val("code").trim().toUpperCase();
+        if (!data.full_name) throw new Error("Inserisci nome e cognome");
+        if (mode === "owner" && !data.company_name) throw new Error("Inserisci il nome dell'azienda");
+        if (mode === "employee" && !data.join_code) throw new Error("Inserisci il codice azienda");
+        const { data: res, error } = await sb.auth.signUp({ email, password, options: { data, emailRedirectTo: location.origin + location.pathname } });
+        if (error) throw error;
+        if (!res.session) { mode = "login"; authScreen(null, "Registrazione fatta! Controlla la tua email e conferma l'indirizzo, poi accedi."); }
+      } catch (err) {
+        authScreen(translate(err.message));
+      }
+    } }, labels[mode])
+  );
+}
+
+async function loadProfile() {
+  const { data: { user } } = await sb.auth.getUser();
+  if (!user) return null;
+  const { data, error } = await sb.from("profiles").select("*, companies(name, join_code)").eq("id", user.id).maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+const logout = () => sb.auth.signOut();
+
+function header(p) {
+  return h("div", { class: "top" },
+    h("div", {}, h("p", { class: "muted", style: "margin:0" }, p.companies?.name || ""), h("h1", { style: "margin-top:4px" }, p.role === "owner" ? "Il tuo team" : "Ciao " + p.full_name.split(" ")[0])),
+    h("button", { class: "ghost", onclick: logout }, "Esci")
+  );
+}
+
+async function ownerScreen(p) {
+  const { data: team, error } = await sb.from("profiles").select("*").eq("company_id", p.company_id).neq("id", p.id).order("created_at");
+  if (error) throw error;
+  const pending = team.filter((t) => t.status === "pending");
+  const active = team.filter((t) => t.status === "active");
+  const decide = async (id, status) => {
+    const { error } = await sb.rpc("set_member_status", { p_user: id, p_status: status });
+    if (error) alert(translate(error.message));
+    route();
+  };
+  show(
+    header(p),
+    h("div", { class: "card row" },
+      h("div", {}, h("div", { class: "muted" }, "Codice azienda da condividere"), h("div", { class: "code" }, p.companies?.join_code)),
+      h("button", { class: "secondary", onclick: async (e) => { try { await navigator.clipboard.writeText(p.companies.join_code); e.target.textContent = "Copiato"; } catch { alert(p.companies.join_code); } } }, "Copia")
+    ),
+    h("h2", {}, "Richieste in attesa (" + pending.length + ")"),
+    pending.length ? pending.map((t) => h("div", { class: "card" },
+      h("div", {}, h("strong", {}, t.full_name), h("div", { class: "muted" }, t.email)),
+      h("div", { class: "btns" }, h("button", { class: "deny", onclick: () => decide(t.id, "rejected") }, "Rifiuta"), h("button", { class: "ok", onclick: () => decide(t.id, "active") }, "Accetta"))
+    )) : h("p", {}, "Nessuna richiesta."),
+    h("h2", {}, "Dipendenti attivi (" + active.length + ")"),
+    active.length ? h("div", { class: "card" }, active.map((t) => h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, t.full_name), h("span", { class: "muted" }, t.email)))) : h("p", {}, "Ancora nessun dipendente."),
+    h("button", { class: "ghost", onclick: route }, "Aggiorna")
+  );
+}
+
+function employeeScreen(p) {
+  if (p.status === "pending") {
+    show(h("div", { class: "logo" }), h("h1", {}, "Richiesta inviata"),
+      h("p", {}, "Il datore di lavoro di " + (p.companies?.name || "questa azienda") + " deve approvare la tua richiesta. Riapri l'app più tardi."),
+      h("button", { class: "secondary primary", onclick: route }, "Controlla ora"),
+      h("button", { class: "ghost", onclick: logout }, "Esci"));
+  } else if (p.status === "rejected") {
+    show(h("div", { class: "logo" }), h("h1", {}, "Richiesta rifiutata"),
+      h("p", {}, "Il datore di lavoro non ha approvato la richiesta. Contattalo per maggiori informazioni."),
+      h("button", { class: "ghost", onclick: logout }, "Esci"));
+  } else {
+    show(header(p), h("div", { class: "note" }, "Sei dentro! Qui vedrai i tuoi lavori, il calendario e i documenti: arrivano nella prossima fase."), h("button", { class: "ghost", onclick: route }, "Aggiorna"));
+  }
+}
+
+async function route() {
+  try {
+    const { data: { session } } = await sb.auth.getSession();
+    if (!session) return authScreen();
+    const p = await loadProfile();
+    if (!p) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
+    if (p.role === "owner") await ownerScreen(p); else employeeScreen(p);
+  } catch (err) {
+    show(h("h1", {}, "Qualcosa non va"), h("div", { class: "err" }, String(err.message || err)), h("button", { class: "ghost", onclick: logout }, "Esci"));
+  }
+}
+
+sb.auth.onAuthStateChange(() => route());
+route();
+</script>
+</body>
+</html>
