@@ -505,10 +505,111 @@ async function prepFile(file) {
   } catch { /* usa il file originale */ }
   return file;
 }
+/* ---- scansione documenti: pulizia immagine + PDF ---- */
+function enhancePixels(d, W, H, bg, filt) {
+  const n = W * H, v = new Uint8ClampedArray(n), hist = new Uint32Array(256);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    const L = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    const B = Math.max(1, 0.299 * bg[i] + 0.587 * bg[i + 1] + 0.114 * bg[i + 2]);
+    const x = Math.min(255, (L / B) * 255 * 1.02);   // toglie ombre e sfondo non uniforme
+    v[p] = x; hist[x | 0]++;
+  }
+  let acc = 0, lo = 0;
+  for (let k = 0; k < 256; k++) { acc += hist[k]; if (acc >= n * 0.01) { lo = k; break; } }
+  lo = Math.min(lo, 200);
+  for (let i = 0, p = 0; p < n; i += 4, p++) {
+    const x = Math.max(0, Math.min(1, (v[p] - lo) / (255 - lo)));
+    let out;
+    if (filt === "bw") { const t = Math.max(0, Math.min(1, (x - 0.45) / 0.2)); out = 255 * t * t * (3 - 2 * t); }
+    else out = 255 * Math.pow(x, 1.6);
+    d[i] = d[i + 1] = d[i + 2] = out;
+  }
+}
+function enhance(c, filt) {
+  const g = c.getContext("2d", { willReadFrequently: true }), W = c.width, H = c.height;
+  const img = g.getImageData(0, 0, W, H);
+  const sw = Math.max(8, Math.round(W / 24)), sh = Math.max(8, Math.round(H / 24));
+  const small = document.createElement("canvas"); small.width = sw; small.height = sh;
+  small.getContext("2d").drawImage(c, 0, 0, sw, sh);
+  const bgc = document.createElement("canvas"); bgc.width = W; bgc.height = H;
+  const bg = bgc.getContext("2d", { willReadFrequently: true });
+  bg.imageSmoothingEnabled = true; bg.imageSmoothingQuality = "high"; bg.drawImage(small, 0, 0, W, H);
+  enhancePixels(img.data, W, H, bg.getImageData(0, 0, W, H).data, filt);
+  g.putImageData(img, 0, 0);
+}
+async function renderPage(bmp, rot, filt, maxSide) {
+  const r = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
+  const w = Math.round(bmp.width * r), hh = Math.round(bmp.height * r), swap = rot % 180 !== 0;
+  const c = document.createElement("canvas"); c.width = swap ? hh : w; c.height = swap ? w : hh;
+  const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate((rot * Math.PI) / 180); g.drawImage(bmp, -w / 2, -hh / 2, w, hh);
+  if (filt !== "orig") enhance(c, filt);
+  return c;
+}
+function buildPdf(pages) {
+  const enc = new TextEncoder(), parts = [], offs = []; let len = 0;
+  const push = (x) => { const b = typeof x === "string" ? enc.encode(x) : x; parts.push(b); len += b.length; };
+  const obj = (n, fn) => { offs[n] = len; push(n + " 0 obj\n"); fn(); push("\nendobj\n"); };
+  push("%PDF-1.4\n");
+  const n = pages.length;
+  obj(1, () => push("<< /Type /Catalog /Pages 2 0 R >>"));
+  obj(2, () => push("<< /Type /Pages /Kids [" + pages.map((_, i) => 3 + 3 * i + " 0 R").join(" ") + "] /Count " + n + " >>"));
+  pages.forEach((p, i) => {
+    const A = 595.28, B = 841.89, PW = p.w > p.h ? B : A, PH = p.w > p.h ? A : B;
+    const s = Math.min(PW / p.w, PH / p.h), iw = p.w * s, ih = p.h * s, x = (PW - iw) / 2, y = (PH - ih) / 2;
+    const content = "q " + iw.toFixed(2) + " 0 0 " + ih.toFixed(2) + " " + x.toFixed(2) + " " + y.toFixed(2) + " cm /Im0 Do Q";
+    obj(3 + 3 * i, () => push("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 " + PW.toFixed(2) + " " + PH.toFixed(2) + "] /Resources << /XObject << /Im0 " + (5 + 3 * i) + " 0 R >> >> /Contents " + (4 + 3 * i) + " 0 R >>"));
+    obj(4 + 3 * i, () => { push("<< /Length " + content.length + " >>\nstream\n"); push(content); push("\nendstream"); });
+    obj(5 + 3 * i, () => { push("<< /Type /XObject /Subtype /Image /Width " + p.w + " /Height " + p.h + " /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length " + p.bytes.length + " >>\nstream\n"); push(p.bytes); push("\nendstream"); });
+  });
+  const total = 2 + 3 * n, xref = len;
+  push("xref\n0 " + (total + 1) + "\n0000000000 65535 f \n");
+  for (let i = 1; i <= total; i++) push(String(offs[i]).padStart(10, "0") + " 00000 n \n");
+  push("trailer\n<< /Size " + (total + 1) + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF");
+  return new Blob(parts, { type: "application/pdf" });
+}
+
 async function docForm(jobId) {
   const jobs = chk(await sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
+  const pages = []; let filt = "doc";
+  const box = h("div");
+  async function addFiles(files) {
+    for (const f of files) { try { pages.push({ bmp: await createImageBitmap(f), rot: 0 }); } catch { alert("Immagine non valida."); } }
+    drawScan();
+  }
+  const camIn = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
+  const galIn = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
+  async function drawScan() {
+    const thumbs = [];
+    for (let i = 0; i < pages.length; i++) {
+      const c = await renderPage(pages[i].bmp, pages[i].rot, filt, 420);
+      thumbs.push(h("div", { class: "card", style: "display:flex;gap:12px;align-items:center;padding:10px" },
+        h("img", { src: c.toDataURL("image/jpeg", 0.6), alt: "Pagina " + (i + 1), style: "width:72px;border:1px solid #DDE2E6;border-radius:6px" }),
+        h("strong", { style: "flex:1" }, "Pagina " + (i + 1)),
+        h("button", { class: "secondary", style: "height:40px", "aria-label": "Ruota", onclick: () => { pages[i].rot = (pages[i].rot + 90) % 360; drawScan(); } }, "↻"),
+        h("button", { class: "deny", style: "height:40px", "aria-label": "Elimina pagina", onclick: () => { pages.splice(i, 1); drawScan(); } }, "✕")));
+    }
+    box.replaceChildren(...[
+      thumbs,
+      pages.length ? h("p", { class: "muted" }, pages.length + (pages.length === 1 ? " pagina" : " pagine") + " · diventeranno un unico PDF") : null,
+      h("div", { class: "btns" }, h("button", { class: "ok", onclick: () => camIn.click() }, "📷 " + (pages.length ? "Altra pagina" : "Scatta pagina")), h("button", { class: "secondary", onclick: () => galIn.click() }, "🖼️ Dalla galleria")),
+      h("label", { for: "sf" }, "Aspetto della scansione"),
+      h("select", { id: "sf", onchange: (e) => { filt = e.target.value; drawScan(); } },
+        [["doc", "Documento (consigliato)"], ["bw", "Bianco e nero"], ["orig", "Originale a colori"]].map(([k, l]) => h("option", { value: k, selected: k === filt }, l)))
+    ].flat().filter((n) => n != null));
+  }
+  drawScan();
+  async function makePdf() {
+    const out = [];
+    for (const p of pages) {
+      const c = await renderPage(p.bmp, p.rot, filt, 2000);
+      const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.78));
+      out.push({ bytes: new Uint8Array(await blob.arrayBuffer()), w: c.width, h: c.height });
+    }
+    return buildPdf(out);
+  }
   return [
     h("h1", {}, "Nuovo documento"),
+    h("div", { class: "card" }, h("div", { class: "title", style: "margin-top:0" }, "Scansiona"), h("p", { class: "muted" }, "Inquadra il foglio da sopra, con buona luce e riempiendo l'inquadratura. Puoi aggiungere più pagine."), box, camIn, galIn),
     h("label", { for: "dk" }, "Tipo"),
     h("select", { id: "dk" }, Object.entries(KINDS).map(([k, l]) => h("option", { value: k, selected: k === (jobId ? "foto" : "bolla") }, l))),
     h("label", { for: "dt" }, "Titolo (facoltativo)"), h("input", { id: "dt", placeholder: "Es. Fattura fornitore Rossi" }),
@@ -516,21 +617,22 @@ async function docForm(jobId) {
     h("select", { id: "dj" }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === jobId }, j.title))),
     h("label", { for: "da" }, "Importo in € (facoltativo)"), h("input", { id: "da", type: "number", inputmode: "decimal", step: "0.01" }),
     h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: new Date().toISOString().slice(0, 10) }),
-    h("label", { for: "df" }, "File o foto"), h("input", { id: "df", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px" }),
-    h("p", { class: "muted", style: "margin-top:6px" }, "Dal telefono puoi scattare una foto o scegliere un file (max 10 MB)."),
+    h("label", { for: "df" }, "Oppure carica un file già pronto (PDF o foto)"), h("input", { id: "df", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px" }),
+    h("p", { class: "muted", style: "margin-top:6px" }, "Se hai scansionato delle pagine, viene caricato il PDF della scansione. Max 10 MB."),
     h("button", { class: "primary", onclick: async (e) => {
       e.target.disabled = true; e.target.textContent = "Caricamento…";
       const ok = await attempt(async () => {
-        const f0 = $("df").files[0]; if (!f0) throw new Error("Scegli un file o scatta una foto");
-        const f = await prepFile(f0);
-        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB)");
+        let f, name;
+        if (pages.length) { const blob = await makePdf(); name = "Scansione " + new Date().toLocaleDateString("it-IT").replace(/\//g, "-") + ".pdf"; f = new File([blob], name, { type: "application/pdf" }); }
+        else { const f0 = $("df").files[0]; if (!f0) throw new Error("Scansiona una pagina o scegli un file"); name = f0.name; f = await prepFile(f0); }
+        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB): prova con meno pagine o 'Bianco e nero'");
         const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
         const path = S.p.company_id + "/" + crypto.randomUUID() + "." + ext;
         const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
         if (up.error) throw up.error;
         const amount = $("da").value;
         const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: $("dj").value || null, kind: $("dk").value, title: $("dt").value.trim() || null,
-          amount: amount === "" ? null : Number(amount), doc_date: $("dd").value || null, file_path: path, file_name: f0.name, mime: f.type, size: f.size, uploaded_by: S.p.id });
+          amount: amount === "" ? null : Number(amount), doc_date: $("dd").value || null, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id });
         if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
       });
       if (ok) back(); else { e.target.disabled = false; e.target.textContent = "Carica"; }
