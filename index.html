@@ -2,38 +2,69 @@
 <html lang="it">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#1B6A86">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>App Azienda</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;background:#F6F7F8;color:#14202B;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:16px}
-#app{max-width:480px;margin:0 auto;padding:32px 20px 48px;min-height:100vh}
-h1{font-size:26px;line-height:32px;margin:12px 0 6px}
+#app{max-width:560px;margin:0 auto;padding:20px 16px 110px;min-height:100vh}
+h1{font-size:24px;line-height:30px;margin:10px 0 12px}
 h2{font-size:16px;margin:22px 0 10px}
-p{margin:0 0 12px;line-height:1.45;color:#4E5A66}
+p{margin:0 0 10px;line-height:1.45;color:#4E5A66}
 .logo{width:44px;height:44px;border-radius:12px;background:#1B6A86}
 label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
-input{width:100%;height:48px;border:1px solid #C9D0D6;border-radius:10px;padding:0 14px;font-size:16px;background:#fff;font-family:inherit}
-input:focus{outline:2px solid #1B6A86;border-color:#1B6A86}
+input,select,textarea{width:100%;border:1px solid #C9D0D6;border-radius:10px;padding:0 14px;font-size:16px;background:#fff;font-family:inherit;color:#14202B}
+input,select{height:48px}
+textarea{padding:12px 14px;line-height:1.4}
+input:focus,select:focus,textarea:focus{outline:2px solid #1B6A86;border-color:#1B6A86}
 button{height:48px;border-radius:10px;border:0;font-size:15px;font-weight:600;font-family:inherit;padding:0 18px;cursor:pointer}
-.primary{background:#1B6A86;color:#fff;width:100%;margin-top:20px;height:52px;font-size:16px}
+button:disabled{opacity:.6}
+.primary{background:#1B6A86;color:#fff;width:100%;margin-top:16px;height:52px;font-size:16px}
 .secondary{background:#fff;color:#1B6A86;border:1px solid #1B6A86}
-.ghost{background:none;color:#1B6A86;height:auto;padding:6px 0}
-.tabs{display:flex;gap:8px;margin:20px 0 4px}
+.ghost{background:none;color:#1B6A86;height:auto;padding:8px 0}
+.danger{background:#fff;color:#A32121;border:1px solid #E3B4B4;width:100%;margin-top:12px}
+.tabs{display:flex;gap:8px;margin:18px 0 4px}
 .tab{flex:1;height:44px;background:#fff;border:1px solid #DDE2E6;color:#14202B}
 .tab.on{background:#1B6A86;color:#fff;border-color:#1B6A86}
 .card{background:#fff;border:1px solid #DDE2E6;border-radius:14px;padding:14px 16px;margin-bottom:12px}
+.tap{cursor:pointer}
 .row{display:flex;gap:10px;align-items:center;justify-content:space-between}
 .btns{display:flex;gap:10px;margin-top:12px}
 .btns button{flex:1;height:44px}
 .deny{background:#fff;color:#14202B;border:1px solid #C9D0D6}
 .ok{background:#1B6A86;color:#fff}
-.note{background:#E3F0F5;border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.4;color:#14202B;margin-top:16px}
+.note{background:#E3F0F5;border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.4;margin-top:14px}
 .err{background:#FDECEC;color:#8A1C1C;border-radius:10px;padding:12px 14px;margin-top:14px;font-size:14px}
 .code{font-size:22px;font-weight:700;letter-spacing:1px}
 .muted{font-size:14px;color:#4E5A66}
-.top{display:flex;justify-content:space-between;align-items:flex-start}
+.top{display:flex;justify-content:space-between;align-items:center;min-height:36px}
+.chips{display:flex;gap:8px;margin:8px 0 14px;flex-wrap:wrap}
+.chip{height:38px;padding:0 14px;background:#fff;border:1px solid #DDE2E6;border-radius:19px;font-size:14px;font-weight:500;color:#14202B}
+.chip.on{background:#1B6A86;border-color:#1B6A86;color:#fff}
+.badge{font-size:12px;font-weight:600;padding:4px 10px;border-radius:12px;white-space:nowrap}
+.b-todo{background:#EEF0F2;color:#3B4651}.b-doing{background:#FFF1D6;color:#7A4B00}.b-done{background:#DDF3E4;color:#14602B}
+.when{font-size:14px;font-weight:600;color:#1B6A86}
+.title{font-size:17px;font-weight:600;margin:6px 0 2px}
+.nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #DDE2E6;display:flex;justify-content:space-around;padding:6px 4px calc(10px + env(safe-area-inset-bottom));z-index:5}
+.nav button{background:none;color:#4E5A66;height:46px;padding:0 6px;font-size:12px;flex:1;border-radius:8px}
+.nav button.on{color:#1B6A86;background:#E3F0F5}
+.link{display:inline-block;color:#1B6A86;font-weight:600;text-decoration:none;padding:8px 0;margin-right:16px}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:8px}
+.cal .dh{font-size:12px;color:#4E5A66;text-align:center;padding:4px 0}
+.cal button{height:46px;padding:0;background:#fff;border:1px solid #DDE2E6;color:#14202B;font-weight:500;position:relative}
+.cal button.sel{background:#1B6A86;color:#fff;border-color:#1B6A86}
+.cal button.today{border:2px solid #1B6A86}
+.cal button i{position:absolute;bottom:4px;left:50%;width:6px;height:6px;margin-left:-3px;border-radius:3px;background:#E08A00}
+.cal button.sel i{background:#fff}
+.sp{display:flex;gap:8px}.sp>*{flex:1}
+.big{height:76px;font-size:19px;margin-top:8px}
+.out{background:#A32121;color:#fff}
+.fab{width:100%}
+hr{border:0;border-top:1px solid #EAEDEF;margin:12px 0}
 </style>
 </head>
 <body>
@@ -46,21 +77,41 @@ const SUPABASE_KEY = "sb_publishable_fuMVp_I1eCypQGGZ9zLhVw_nw8GEvMz";
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.getElementById("app");
 
-// piccolo helper: crea elementi senza innerHTML (testo sempre escapato)
+/* ---------- utilità ---------- */
 function h(tag, attrs, ...kids) {
   const el = document.createElement(tag);
+  let pending;
   for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === false || v == null) continue;
     if (k === "class") el.className = v;
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
-    else el.setAttribute(k, v);
+    else if (k === "value") pending = v;
+    else el.setAttribute(k, v === true ? "" : v);
   }
-  for (const kid of kids.flat()) {
+  for (const kid of kids.flat(Infinity)) {
     if (kid == null || kid === false) continue;
     el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   }
+  if (pending != null) el.value = pending;
   return el;
 }
-function show(...nodes) { root.replaceChildren(...nodes.flat().filter((n) => n != null && n !== false)); }
+const $ = (id) => document.getElementById(id);
+function show(...nodes) { root.replaceChildren(...nodes.flat(Infinity).filter((n) => n != null && n !== false)); }
+const D = (s) => new Date(s);
+const fDate = (s) => D(s).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" });
+const fTime = (s) => D(s).toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" });
+const fDT = (s) => (s ? fDate(s) + " " + fTime(s) : "");
+const toInput = (s) => { if (!s) return ""; const d = new Date(s); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); };
+const fromInput = (v) => (v ? new Date(v).toISOString() : null);
+const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m"; };
+const money = (n) => Number(n).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+const mapsUrl = (a) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(a);
+const telUrl = (p) => "tel:" + String(p).replace(/[^\d+]/g, "");
+const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; };
+const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+const STATUS = { todo: "Da fare", doing: "In corso", done: "Completato" };
+const KINDS = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", altro: "Altro" };
+
 function translate(msg) {
   const m = String(msg || "");
   if (m.includes("Codice azienda non valido")) return "Codice azienda non valido.";
@@ -68,29 +119,50 @@ function translate(msg) {
   if (m.includes("Invalid login")) return "Email o password errate.";
   if (m.includes("Password should")) return "La password deve avere almeno 6 caratteri.";
   if (m.includes("Email not confirmed")) return "Conferma prima l'email (controlla la posta).";
+  if (m.includes("row-level security") || m.includes("Operazione non consentita")) return "Operazione non consentita.";
+  if (m.includes("permission denied")) return "Permesso negato: manca un passaggio di configurazione.";
+  if (m.includes("rate limit")) return "Troppi tentativi, riprova tra poco.";
   return "Errore: " + m;
 }
+async function attempt(fn) {
+  try { await fn(); return true; } catch (e) { alert(translate(e && e.message ? e.message : e)); return false; }
+}
+const chk = (res) => { if (res.error) throw res.error; return res.data; };
 
-let mode = "login"; // login | owner | employee
+/* ---------- stato e navigazione ---------- */
+const S = { p: null, tab: "jobs", sub: null, stack: [], month: new Date(), day: new Date(), jobFilter: "open", docKind: "all", team: [], draft: {} };
+const OWNER = () => S.p && S.p.role === "owner";
+const nameOf = (id) => (S.team.find((t) => t.id === id) || {}).full_name || "";
+
+function go(sub) { S.stack.push({ tab: S.tab, sub: S.sub }); S.sub = sub; history.pushState({}, ""); render(); window.scrollTo(0, 0); }
+function back() { if (S.stack.length) history.back(); else { S.sub = null; render(); } }
+function setTab(t) { S.tab = t; S.sub = null; S.stack = []; render(); window.scrollTo(0, 0); }
+window.addEventListener("popstate", () => {
+  if (!S.p) return;
+  const x = S.stack.pop();
+  if (x) { S.tab = x.tab; S.sub = x.sub; render(); }
+});
+const logout = () => sb.auth.signOut();
+
+/* ---------- accesso e registrazione ---------- */
+let mode = "login";
 const form = { name: "", company: "", email: "", code: "" };
-function saveForm() { for (const k of ["name","company","email","code"]) { const el = document.getElementById(k === "code" ? "code" : k); if (el) form[k] = el.value; } }
+function saveForm() { for (const k of ["name", "company", "email", "code"]) { const el = $("f_" + k); if (el) form[k] = el.value; } }
 
 function authScreen(error, info) {
-  const val = (id) => (document.getElementById(id) || {}).value || "";
   const tab = (m, label) => h("button", { class: "tab" + (mode === m ? " on" : ""), onclick: () => { saveForm(); mode = m; authScreen(); } }, label);
   const fields = [];
-  if (mode !== "login") fields.push(h("label", { for: "name" }, "Nome e cognome"), h("input", { id: "name", autocomplete: "name", value: form.name }));
-  if (mode === "owner") fields.push(h("label", { for: "company" }, "Nome dell'azienda"), h("input", { id: "company", value: form.company }));
+  if (mode !== "login") fields.push(h("label", { for: "f_name" }, "Nome e cognome"), h("input", { id: "f_name", autocomplete: "name", value: form.name }));
+  if (mode === "owner") fields.push(h("label", { for: "f_company" }, "Nome dell'azienda"), h("input", { id: "f_company", value: form.company }));
   fields.push(
-    h("label", { for: "email" }, "Email"), h("input", { id: "email", type: "email", autocomplete: "email", value: form.email }),
-    h("label", { for: "pass" }, "Password"), h("input", { id: "pass", type: "password", autocomplete: mode === "login" ? "current-password" : "new-password" })
+    h("label", { for: "f_email" }, "Email"), h("input", { id: "f_email", type: "email", autocomplete: "email", value: form.email }),
+    h("label", { for: "f_pass" }, "Password"), h("input", { id: "f_pass", type: "password", autocomplete: mode === "login" ? "current-password" : "new-password" })
   );
-  if (mode === "employee") fields.push(h("label", { for: "code" }, "Codice azienda"), h("input", { id: "code", autocapitalize: "characters", value: form.code }));
+  if (mode === "employee") fields.push(h("label", { for: "f_code" }, "Codice azienda"), h("input", { id: "f_code", autocapitalize: "characters", value: form.code }));
   const titles = { login: "Accedi", owner: "Crea la tua azienda", employee: "Unisciti alla tua azienda" };
   const labels = { login: "Accedi", owner: "Crea azienda", employee: "Invia richiesta" };
   show(
-    h("div", { class: "logo" }),
-    h("h1", {}, titles[mode]),
+    h("div", { class: "logo" }), h("h1", {}, titles[mode]),
     mode === "employee" ? h("p", {}, "Usa il codice che ti ha dato il datore di lavoro.") : null,
     h("div", { class: "tabs" }, tab("login", "Accedi"), tab("employee", "Dipendente"), tab("owner", "Datore")),
     ...fields,
@@ -98,104 +170,425 @@ function authScreen(error, info) {
     info ? h("div", { class: "note" }, info) : null,
     mode === "employee" ? h("div", { class: "note" }, "Il datore di lavoro dovrà approvare la richiesta prima che tu possa entrare.") : null,
     h("button", { class: "primary", onclick: async (e) => {
-      e.target.disabled = true;
-      saveForm();
-      const email = val("email").trim(), password = val("pass");
+      e.target.disabled = true; saveForm();
+      const email = $("f_email").value.trim(), password = $("f_pass").value;
       try {
-        if (mode === "login") {
-          const { error } = await sb.auth.signInWithPassword({ email, password });
-          if (error) throw error;
-          return;
-        }
-        const data = { full_name: val("name").trim() };
-        if (mode === "owner") data.company_name = val("company").trim();
-        else data.join_code = val("code").trim().toUpperCase();
+        if (mode === "login") { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; return; }
+        const data = { full_name: form.name.trim() };
+        if (mode === "owner") data.company_name = form.company.trim(); else data.join_code = form.code.trim().toUpperCase();
         if (!data.full_name) throw new Error("Inserisci nome e cognome");
         if (mode === "owner" && !data.company_name) throw new Error("Inserisci il nome dell'azienda");
         if (mode === "employee" && !data.join_code) throw new Error("Inserisci il codice azienda");
         const { data: res, error } = await sb.auth.signUp({ email, password, options: { data, emailRedirectTo: location.origin + location.pathname } });
         if (error) throw error;
-        if (!res.session) { mode = "login"; authScreen(null, "Registrazione fatta! Controlla la tua email e conferma l'indirizzo, poi accedi."); }
-      } catch (err) {
-        authScreen(translate(err.message));
-      }
+        if (!res.session) { mode = "login"; authScreen(null, "Registrazione fatta! Controlla l'email e conferma l'indirizzo, poi accedi."); }
+      } catch (err) { authScreen(translate(err.message)); }
     } }, labels[mode])
   );
 }
 
-async function loadProfile() {
-  const { data: { user } } = await sb.auth.getUser();
-  if (!user) return null;
-  const { data, error } = await sb.from("profiles").select("*, companies(name, join_code)").eq("id", user.id).maybeSingle();
-  if (error) throw error;
-  return data;
-}
-
-const logout = () => sb.auth.signOut();
-
-function header(p) {
-  return h("div", { class: "top" },
-    h("div", {}, h("p", { class: "muted", style: "margin:0" }, p.companies?.name || ""), h("h1", { style: "margin-top:4px" }, p.role === "owner" ? "Il tuo team" : "Ciao " + p.full_name.split(" ")[0])),
-    h("button", { class: "ghost", onclick: logout }, "Esci")
-  );
-}
-
-async function ownerScreen(p) {
-  const { data: team, error } = await sb.from("profiles").select("*").eq("company_id", p.company_id).neq("id", p.id).order("created_at");
-  if (error) throw error;
-  const pending = team.filter((t) => t.status === "pending");
-  const active = team.filter((t) => t.status === "active");
-  const decide = async (id, status) => {
-    const { error } = await sb.rpc("set_member_status", { p_user: id, p_status: status });
-    if (error) alert(translate(error.message));
-    route();
-  };
-  show(
-    header(p),
-    h("div", { class: "card row" },
-      h("div", {}, h("div", { class: "muted" }, "Codice azienda da condividere"), h("div", { class: "code" }, p.companies?.join_code)),
-      h("button", { class: "secondary", onclick: async (e) => { try { await navigator.clipboard.writeText(p.companies.join_code); e.target.textContent = "Copiato"; } catch { alert(p.companies.join_code); } } }, "Copia")
-    ),
-    h("h2", {}, "Richieste in attesa (" + pending.length + ")"),
-    pending.length ? pending.map((t) => h("div", { class: "card" },
-      h("div", {}, h("strong", {}, t.full_name), h("div", { class: "muted" }, t.email)),
-      h("div", { class: "btns" }, h("button", { class: "deny", onclick: () => decide(t.id, "rejected") }, "Rifiuta"), h("button", { class: "ok", onclick: () => decide(t.id, "active") }, "Accetta"))
-    )) : h("p", {}, "Nessuna richiesta."),
-    h("h2", {}, "Dipendenti attivi (" + active.length + ")"),
-    active.length ? h("div", { class: "card" }, active.map((t) => h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, t.full_name), h("span", { class: "muted" }, t.email)))) : h("p", {}, "Ancora nessun dipendente."),
-    h("button", { class: "ghost", onclick: route }, "Aggiorna")
-  );
-}
-
-function employeeScreen(p) {
-  if (p.status === "pending") {
-    show(h("div", { class: "logo" }), h("h1", {}, "Richiesta inviata"),
-      h("p", {}, "Il datore di lavoro di " + (p.companies?.name || "questa azienda") + " deve approvare la tua richiesta. Riapri l'app più tardi."),
-      h("button", { class: "secondary primary", onclick: route }, "Controlla ora"),
-      h("button", { class: "ghost", onclick: logout }, "Esci"));
-  } else if (p.status === "rejected") {
-    show(h("div", { class: "logo" }), h("h1", {}, "Richiesta rifiutata"),
-      h("p", {}, "Il datore di lavoro non ha approvato la richiesta. Contattalo per maggiori informazioni."),
-      h("button", { class: "ghost", onclick: logout }, "Esci"));
-  } else {
-    show(header(p), h("div", { class: "note" }, "Sei dentro! Qui vedrai i tuoi lavori, il calendario e i documenti: arrivano nella prossima fase."), h("button", { class: "ghost", onclick: route }, "Aggiorna"));
-  }
-}
-
-async function route() {
+/* ---------- avvio ---------- */
+async function boot() {
   try {
     const { data: { session } } = await sb.auth.getSession();
-    if (!session) return authScreen();
-    const p = await loadProfile();
-    if (!p) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
-    if (p.role === "owner") await ownerScreen(p); else employeeScreen(p);
+    if (!session) { S.p = null; return authScreen(); }
+    const { data, error } = await sb.from("profiles").select("*, companies(name, join_code)").eq("id", session.user.id).maybeSingle();
+    if (error) throw error;
+    if (!data) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
+    S.p = data;
+    if (data.role === "employee" && data.status !== "active") return waitScreen(data);
+    if (data.role === "owner") await loadTeam();
+    render();
   } catch (err) {
     show(h("h1", {}, "Qualcosa non va"), h("div", { class: "err" }, String(err.message || err)), h("button", { class: "ghost", onclick: logout }, "Esci"));
   }
 }
+function waitScreen(p) {
+  if (p.status === "pending") show(h("div", { class: "logo" }), h("h1", {}, "Richiesta inviata"),
+    h("p", {}, "Il datore di lavoro di " + (p.companies?.name || "questa azienda") + " deve approvare la tua richiesta. Riapri l'app più tardi."),
+    h("button", { class: "secondary primary", onclick: boot }, "Controlla ora"), h("button", { class: "ghost", onclick: logout }, "Esci"));
+  else show(h("div", { class: "logo" }), h("h1", {}, "Richiesta rifiutata"),
+    h("p", {}, "Il datore di lavoro non ha approvato la richiesta. Contattalo per informazioni."), h("button", { class: "ghost", onclick: logout }, "Esci"));
+}
+async function loadTeam() {
+  const { data, error } = await sb.from("profiles").select("*").eq("company_id", S.p.company_id).neq("id", S.p.id).order("created_at");
+  if (error) throw error;
+  S.team = data;
+}
 
-sb.auth.onAuthStateChange(() => route());
-route();
+/* ---------- cornice ---------- */
+let renderId = 0;
+async function render() {
+  if (!S.p) return;
+  const my = ++renderId;
+  show(h("p", { class: "muted", style: "margin-top:40px;text-align:center" }, "Caricamento…"));
+  try {
+    const sub = S.sub;
+    let nodes;
+    if (sub) {
+      if (sub.t === "job") nodes = await jobView(sub.id);
+      else if (sub.t === "jobForm") nodes = await jobForm(sub.id);
+      else if (sub.t === "client") nodes = await clientView(sub.id);
+      else if (sub.t === "clientForm") nodes = await clientForm(sub.id);
+      else if (sub.t === "docForm") nodes = await docForm(sub.job);
+    } else {
+      if (S.tab === "jobs") nodes = await jobsView();
+      else if (S.tab === "cal") nodes = await calView();
+      else if (S.tab === "clients") nodes = await clientsView();
+      else if (S.tab === "docs") nodes = await docsView();
+      else if (S.tab === "team") nodes = await teamView();
+      else if (S.tab === "hours") nodes = await hoursView();
+    }
+    if (my !== renderId) return;
+    show(topbar(!!sub), nodes, sub ? null : navbar());
+  } catch (e) {
+    if (my !== renderId) return;
+    show(topbar(false), h("h1", {}, "Qualcosa non va"), h("div", { class: "err" }, String(e.message || e)),
+      h("button", { class: "secondary primary", onclick: render }, "Riprova"));
+  }
+}
+function topbar(isSub) {
+  if (isSub) return h("div", { class: "top" }, h("button", { class: "ghost", onclick: back }, "← Indietro"));
+  return h("div", { class: "top" },
+    h("span", { class: "muted" }, S.p.companies?.name || ""),
+    h("span", {}, h("button", { class: "ghost", style: "margin-right:18px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
+}
+function navbar() {
+  const items = OWNER()
+    ? [["jobs", "Lavori"], ["cal", "Calendario"], ["clients", "Clienti"], ["docs", "Documenti"], ["team", "Team"]]
+    : [["jobs", "Lavori"], ["cal", "Calendario"], ["docs", "Documenti"], ["hours", "Ore"]];
+  return h("div", { class: "nav" }, items.map(([k, l]) => h("button", { class: S.tab === k ? "on" : "", onclick: () => setTab(k) }, l)));
+}
+const badge = (s) => h("span", { class: "badge b-" + s }, STATUS[s]);
+
+/* ---------- lavori ---------- */
+function jobCard(j) {
+  const names = OWNER() ? (j.job_assignments || []).map((a) => nameOf(a.user_id)).filter(Boolean).join(", ") : "";
+  return h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "job", id: j.id }) },
+    h("div", { class: "row" }, h("span", { class: "when" }, j.start_at ? fDate(j.start_at) + " · " + fTime(j.start_at) + (j.end_at ? "–" + fTime(j.end_at) : "") : "Senza data"), badge(j.status)),
+    h("div", { class: "title" }, j.title),
+    j.clients?.name ? h("div", { class: "muted" }, j.clients.name) : null,
+    j.address ? h("div", { class: "muted" }, j.address) : null,
+    names ? h("div", { class: "muted", style: "margin-top:4px" }, "👷 " + names) : null);
+}
+async function jobsView() {
+  const data = chk(await sb.from("jobs").select("*, clients(name,phone,address), job_assignments(user_id)").order("start_at", { ascending: true, nullsFirst: false }));
+  let list = data;
+  if (S.jobFilter === "open") list = list.filter((j) => j.status !== "done");
+  else if (S.jobFilter === "done") list = list.filter((j) => j.status === "done").reverse();
+  const chip = (k, l) => h("button", { class: "chip" + (S.jobFilter === k ? " on" : ""), onclick: () => { S.jobFilter = k; render(); } }, l);
+  return [
+    h("h1", {}, OWNER() ? "Lavori" : "I miei lavori"),
+    h("div", { class: "chips" }, chip("open", "Aperti"), chip("done", "Completati"), chip("all", "Tutti")),
+    OWNER() ? h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "jobForm" }) }, "+ Nuovo lavoro") : null,
+    list.length ? list.map(jobCard) : h("p", {}, OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro assegnato per ora.")
+  ];
+}
+
+async function jobView(id) {
+  const [j, mats, docs] = await Promise.all([
+    sb.from("jobs").select("*, clients(*), job_assignments(user_id)").eq("id", id).single().then(chk),
+    sb.from("job_materials").select("*").eq("job_id", id).order("created_at").then(chk),
+    sb.from("documents").select("*, profiles(full_name)").eq("job_id", id).order("created_at", { ascending: false }).then(chk)
+  ]);
+  const names = (j.job_assignments || []).map((a) => nameOf(a.user_id)).filter(Boolean);
+  const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
+  return [
+    h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, j.title), badge(j.status)),
+    j.start_at ? h("p", { class: "when" }, "🕒 " + fDT(j.start_at) + (j.end_at ? " → " + fTime(j.end_at) : "")) : null,
+    j.clients ? h("div", { class: "card" },
+      h("div", { class: "muted" }, "Cliente"), h("div", { class: "title", style: "margin-top:2px" }, j.clients.name),
+      h("div", {}, j.clients.phone ? h("a", { class: "link", href: telUrl(j.clients.phone) }, "📞 Chiama") : null,
+        h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); go({ t: "client", id: j.clients.id }); } }, "Scheda"))) : null,
+    j.address ? h("div", { class: "card" }, h("div", { class: "muted" }, "Indirizzo"), h("div", { style: "margin:2px 0" }, j.address),
+      h("a", { class: "link", href: mapsUrl(j.address), target: "_blank", rel: "noopener" }, "🗺️ Indicazioni")) : null,
+    j.description ? h("div", { class: "card" }, h("div", { class: "muted" }, "Descrizione"), h("div", { style: "white-space:pre-wrap;margin-top:2px" }, j.description)) : null,
+    OWNER() && names.length ? h("p", {}, "👷 Assegnato a: " + names.join(", ")) : null,
+
+    h("h2", {}, "Avanzamento"),
+    h("div", { class: "card" },
+      h("label", { for: "st", style: "margin-top:0" }, "Stato"),
+      h("select", { id: "st" }, ["todo", "doing", "done"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
+      h("label", { for: "fn" }, "Note dal cantiere"),
+      h("textarea", { id: "fn", rows: "3", placeholder: "Cosa hai fatto, problemi, cose da ricordare…" }, j.field_notes || ""),
+      h("button", { class: "primary", style: "margin-top:12px", onclick: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); }) }, "Salva avanzamento")),
+
+    h("h2", {}, "Materiale usato"),
+    mats.length ? h("div", { class: "card" }, mats.map((m, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
+      h("span", {}, m.description), h("span", { class: "muted" }, [m.quantity != null ? Number(m.quantity) : "", m.unit || ""].join(" ").trim(),
+        (OWNER() || m.added_by === S.p.id) ? h("button", { class: "ghost", style: "margin-left:10px", "aria-label": "Elimina", onclick: reloadAfter(async () => { chk(await sb.from("job_materials").delete().eq("id", m.id)); }) }, "✕") : null)))) : h("p", {}, "Nessun materiale registrato."),
+    h("div", { class: "card" },
+      h("label", { for: "md", style: "margin-top:0" }, "Aggiungi materiale"),
+      h("input", { id: "md", placeholder: "Es. Cavo 3x1.5" }),
+      h("div", { class: "sp", style: "margin-top:8px" }, h("input", { id: "mq", type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità" }), h("input", { id: "mu", placeholder: "Unità (m, pz…)" })),
+      h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: reloadAfter(async () => {
+        const description = $("md").value.trim(); if (!description) throw new Error("Scrivi cosa hai usato");
+        const q = $("mq").value; chk(await sb.from("job_materials").insert({ job_id: j.id, company_id: j.company_id, description, quantity: q === "" ? null : Number(q), unit: $("mu").value.trim() || null, added_by: S.p.id }));
+      }) }, "Aggiungi")),
+
+    h("h2", {}, "Documenti e foto"),
+    docs.length ? docs.map((d) => docItem(d, false)) : h("p", {}, "Nessun documento collegato."),
+    h("button", { class: "secondary", style: "width:100%", onclick: () => go({ t: "docForm", job: j.id }) }, "+ Aggiungi foto o documento"),
+
+    OWNER() ? [
+      h("button", { class: "secondary", style: "width:100%;margin-top:22px", onclick: () => go({ t: "jobForm", id: j.id }) }, "Modifica lavoro"),
+      h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questo lavoro?")) return; if (await attempt(async () => { chk(await sb.from("jobs").delete().eq("id", j.id)); })) back(); } }, "Elimina lavoro")
+    ] : null
+  ];
+}
+
+async function jobForm(id) {
+  await loadTeam();
+  const clients = chk(await sb.from("clients").select("id,name,address").order("name"));
+  const j = id ? chk(await sb.from("jobs").select("*, job_assignments(user_id)").eq("id", id).single()) : { status: "todo", job_assignments: [] };
+  const assigned = new Set((j.job_assignments || []).map((a) => a.user_id));
+  const staff = S.team.filter((t) => t.status === "active");
+  return [
+    h("h1", {}, id ? "Modifica lavoro" : "Nuovo lavoro"),
+    h("label", { for: "jt" }, "Titolo"), h("input", { id: "jt", value: j.title || "", placeholder: "Es. Impianto domotico villa" }),
+    h("label", { for: "jc" }, "Cliente"),
+    h("select", { id: "jc", onchange: () => { const c = clients.find((x) => x.id === $("jc").value); if (c && c.address && !$("ja").value) $("ja").value = c.address; } },
+      h("option", { value: "" }, "— nessuno —"), clients.map((c) => h("option", { value: c.id, selected: j.client_id === c.id }, c.name))),
+    h("label", { for: "jn" }, "Oppure nuovo cliente (solo nome)"), h("input", { id: "jn", placeholder: "Crea un cliente al volo" }),
+    h("label", { for: "ja" }, "Indirizzo del lavoro"), h("input", { id: "ja", value: j.address || "", placeholder: "Via, numero, città" }),
+    h("label", { for: "js" }, "Inizio"), h("input", { id: "js", type: "datetime-local", value: toInput(j.start_at) }),
+    h("label", { for: "je" }, "Fine"), h("input", { id: "je", type: "datetime-local", value: toInput(j.end_at) }),
+    h("label", { for: "jd" }, "Descrizione"), h("textarea", { id: "jd", rows: "4", placeholder: "Cosa c'è da fare…" }, j.description || ""),
+    h("label", {}, "Assegna a"),
+    staff.length ? h("div", { class: "card" }, staff.map((t) => h("label", { style: "display:flex;align-items:center;gap:12px;margin:6px 0;font-weight:500;font-size:16px" },
+      h("input", { type: "checkbox", class: "as", value: t.id, checked: assigned.has(t.id), style: "width:22px;height:22px" }), t.full_name))) : h("p", {}, "Non hai ancora dipendenti attivi."),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const title = $("jt").value.trim(); if (!title) throw new Error("Inserisci il titolo");
+        let client_id = $("jc").value || null;
+        const newName = $("jn").value.trim();
+        if (!client_id && newName) { const c = chk(await sb.from("clients").insert({ company_id: S.p.company_id, name: newName, address: $("ja").value.trim() || null }).select().single()); client_id = c.id; }
+        const payload = { title, client_id, address: $("ja").value.trim() || null, description: $("jd").value.trim() || null, start_at: fromInput($("js").value), end_at: fromInput($("je").value) };
+        let jobId = id;
+        if (id) chk(await sb.from("jobs").update(payload).eq("id", id));
+        else { const r = chk(await sb.from("jobs").insert({ ...payload, company_id: S.p.company_id, created_by: S.p.id, status: "todo" }).select().single()); jobId = r.id; }
+        const ids = [...document.querySelectorAll(".as")].filter((c) => c.checked).map((c) => c.value);
+        chk(await sb.from("job_assignments").delete().eq("job_id", jobId));
+        if (ids.length) chk(await sb.from("job_assignments").insert(ids.map((u) => ({ job_id: jobId, user_id: u }))));
+      });
+      if (ok) { S.jobFilter = "open"; back(); } else e.target.disabled = false;
+    } }, "Salva lavoro")
+  ];
+}
+
+/* ---------- calendario ---------- */
+async function calView() {
+  const y = S.month.getFullYear(), m = S.month.getMonth();
+  const first = new Date(y, m, 1), next = new Date(y, m + 1, 1);
+  const jobs = chk(await sb.from("jobs").select("*, clients(name)").gte("start_at", first.toISOString()).lt("start_at", next.toISOString()).order("start_at"));
+  const today = new Date();
+  const offset = (first.getDay() + 6) % 7;
+  const days = new Date(y, m + 1, 0).getDate();
+  const cells = [];
+  for (const d of ["L", "M", "M", "G", "V", "S", "D"]) cells.push(h("div", { class: "dh" }, d));
+  for (let i = 0; i < offset; i++) cells.push(h("div"));
+  for (let d = 1; d <= days; d++) {
+    const date = new Date(y, m, d);
+    const has = jobs.some((j) => sameDay(D(j.start_at), date));
+    cells.push(h("button", { class: (sameDay(date, S.day) ? "sel " : "") + (sameDay(date, today) ? "today" : ""), "aria-label": d + "", onclick: () => { S.day = date; render(); } }, String(d), has ? h("i") : null));
+  }
+  const list = jobs.filter((j) => sameDay(D(j.start_at), S.day));
+  const title = first.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+  return [
+    h("div", { class: "row" }, h("button", { class: "secondary", "aria-label": "Mese precedente", onclick: () => { S.month = new Date(y, m - 1, 1); S.day = new Date(y, m - 1, 1); render(); } }, "‹"),
+      h("h1", { style: "margin:0;text-transform:capitalize" }, title),
+      h("button", { class: "secondary", "aria-label": "Mese successivo", onclick: () => { S.month = new Date(y, m + 1, 1); S.day = new Date(y, m + 1, 1); render(); } }, "›")),
+    h("div", { class: "cal", style: "margin-top:14px" }, cells),
+    h("h2", {}, S.day.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
+    list.length ? list.map(jobCard) : h("p", {}, "Nessun lavoro in questo giorno.")
+  ];
+}
+
+/* ---------- clienti (datore) ---------- */
+async function clientsView() {
+  const data = chk(await sb.from("clients").select("*").order("name"));
+  const q = S.draft.clientQ || "";
+  const list = data.filter((c) => (c.name + " " + (c.address || "") + " " + (c.phone || "")).toLowerCase().includes(q.toLowerCase()));
+  return [
+    h("h1", {}, "Clienti"),
+    h("input", { id: "cq", placeholder: "Cerca cliente…", value: q, oninput: (e) => { S.draft.clientQ = e.target.value; } , onkeydown: (e) => { if (e.key === "Enter") render(); } }),
+    h("button", { class: "secondary", style: "width:100%;margin:8px 0 12px", onclick: () => { S.draft.clientQ = $("cq").value; render(); } }, "Cerca"),
+    h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "clientForm" }) }, "+ Nuovo cliente"),
+    list.length ? list.map((c) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "client", id: c.id }) },
+      h("div", { class: "title", style: "margin-top:0" }, c.name), c.phone ? h("div", { class: "muted" }, c.phone) : null, c.address ? h("div", { class: "muted" }, c.address) : null)) : h("p", {}, "Nessun cliente.")
+  ];
+}
+async function clientView(id) {
+  const c = chk(await sb.from("clients").select("*").eq("id", id).single());
+  const jobs = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").eq("client_id", id).order("start_at", { ascending: false }));
+  return [
+    h("h1", {}, c.name),
+    h("div", { class: "card" },
+      c.phone ? h("div", {}, h("a", { class: "link", href: telUrl(c.phone) }, "📞 " + c.phone)) : null,
+      c.email ? h("div", {}, h("a", { class: "link", href: "mailto:" + encodeURIComponent(c.email) }, "✉️ " + c.email)) : null,
+      c.address ? h("div", {}, h("a", { class: "link", href: mapsUrl(c.address), target: "_blank", rel: "noopener" }, "🗺️ " + c.address)) : null,
+      c.notes ? h("p", { style: "white-space:pre-wrap;margin-top:8px" }, c.notes) : null,
+      !c.phone && !c.email && !c.address && !c.notes ? h("p", {}, "Nessun dettaglio.") : null),
+    h("h2", {}, "Lavori di questo cliente"),
+    jobs.length ? jobs.map(jobCard) : h("p", {}, "Nessun lavoro."),
+    OWNER() ? [h("button", { class: "secondary", style: "width:100%;margin-top:16px", onclick: () => go({ t: "clientForm", id }) }, "Modifica cliente"),
+      h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare il cliente? I suoi lavori restano, senza cliente.")) return; if (await attempt(async () => { chk(await sb.from("clients").delete().eq("id", id)); })) back(); } }, "Elimina cliente")] : null
+  ];
+}
+async function clientForm(id) {
+  const c = id ? chk(await sb.from("clients").select("*").eq("id", id).single()) : {};
+  return [
+    h("h1", {}, id ? "Modifica cliente" : "Nuovo cliente"),
+    h("label", { for: "cn" }, "Nome o ragione sociale"), h("input", { id: "cn", value: c.name || "" }),
+    h("label", { for: "cp" }, "Telefono"), h("input", { id: "cp", type: "tel", value: c.phone || "" }),
+    h("label", { for: "ce" }, "Email"), h("input", { id: "ce", type: "email", value: c.email || "" }),
+    h("label", { for: "ca" }, "Indirizzo"), h("input", { id: "ca", value: c.address || "" }),
+    h("label", { for: "cno" }, "Note"), h("textarea", { id: "cno", rows: "3" }, c.notes || ""),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const name = $("cn").value.trim(); if (!name) throw new Error("Inserisci il nome");
+        const p = { name, phone: $("cp").value.trim() || null, email: $("ce").value.trim() || null, address: $("ca").value.trim() || null, notes: $("cno").value.trim() || null };
+        if (id) chk(await sb.from("clients").update(p).eq("id", id)); else chk(await sb.from("clients").insert({ ...p, company_id: S.p.company_id }));
+      });
+      if (ok) back(); else e.target.disabled = false;
+    } }, "Salva cliente")
+  ];
+}
+
+/* ---------- documenti ---------- */
+async function openDoc(d) {
+  const w = window.open("", "_blank");
+  const { data, error } = await sb.storage.from("docs").createSignedUrl(d.file_path, 600);
+  if (error || !data) { if (w) w.close(); alert("Impossibile aprire il file."); return; }
+  if (w) w.location.href = data.signedUrl; else location.href = data.signedUrl;
+}
+function docItem(d, showJob) {
+  const meta = [KINDS[d.kind], d.doc_date ? D(d.doc_date).toLocaleDateString("it-IT") : fDate(d.created_at), d.amount != null ? money(d.amount) : null].filter(Boolean).join(" · ");
+  const who = OWNER() && d.profiles?.full_name ? "Caricato da " + d.profiles.full_name : "";
+  return h("div", { class: "card" },
+    h("div", { class: "row" }, h("div", {}, h("div", { class: "title", style: "margin-top:0" }, d.title || d.file_name || "Documento"), h("div", { class: "muted" }, meta)),
+      d.kind === "fattura" ? h("span", { class: "badge " + (d.paid ? "b-done" : "b-doing") }, d.paid ? "Pagata" : "Da pagare") : null),
+    showJob && d.jobs?.title ? h("div", { class: "muted" }, "Lavoro: " + d.jobs.title) : null,
+    who ? h("div", { class: "muted" }, who) : null,
+    h("div", { class: "btns" },
+      h("button", { class: "secondary", onclick: () => openDoc(d) }, "Apri"),
+      OWNER() && d.kind === "fattura" ? h("button", { class: "deny", onclick: async () => { if (await attempt(async () => { chk(await sb.from("documents").update({ paid: !d.paid }).eq("id", d.id)); })) render(); } }, d.paid ? "Segna da pagare" : "Segna pagata") : null,
+      (OWNER() || d.uploaded_by === S.p.id) ? h("button", { class: "deny", onclick: async () => {
+        if (!confirm("Eliminare questo documento?")) return;
+        if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); })) render();
+      } }, "Elimina") : null));
+}
+async function docsView() {
+  const all = chk(await sb.from("documents").select("*, jobs(title), profiles(full_name)").order("created_at", { ascending: false }));
+  const list = S.docKind === "all" ? all : all.filter((d) => d.kind === S.docKind);
+  const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; render(); } }, l);
+  const unpaid = all.filter((d) => d.kind === "fattura" && !d.paid && d.amount != null).reduce((s, d) => s + Number(d.amount), 0);
+  return [
+    h("h1", {}, "Documenti"),
+    OWNER() && unpaid > 0 ? h("div", { class: "note", style: "margin:0 0 12px" }, "Fatture da pagare: " + money(unpaid)) : null,
+    h("div", { class: "chips" }, chip("all", "Tutti"), chip("foto", "Foto"), chip("bolla", "Bolle"), chip("fattura", "Fatture"), chip("altro", "Altro")),
+    h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "docForm" }) }, "+ Carica foto o documento"),
+    list.length ? list.map((d) => docItem(d, true)) : h("p", {}, "Nessun documento.")
+  ];
+}
+async function prepFile(file) {
+  if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
+  try {
+    const bmp = await createImageBitmap(file);
+    const r = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
+    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
+    if (blob && blob.size < file.size) return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+  } catch { /* usa il file originale */ }
+  return file;
+}
+async function docForm(jobId) {
+  const jobs = chk(await sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
+  return [
+    h("h1", {}, "Nuovo documento"),
+    h("label", { for: "dk" }, "Tipo"),
+    h("select", { id: "dk" }, Object.entries(KINDS).map(([k, l]) => h("option", { value: k, selected: k === (jobId ? "foto" : "bolla") }, l))),
+    h("label", { for: "dt" }, "Titolo (facoltativo)"), h("input", { id: "dt", placeholder: "Es. Fattura fornitore Rossi" }),
+    h("label", { for: "dj" }, "Lavoro collegato"),
+    h("select", { id: "dj" }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === jobId }, j.title))),
+    h("label", { for: "da" }, "Importo in € (facoltativo)"), h("input", { id: "da", type: "number", inputmode: "decimal", step: "0.01" }),
+    h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: new Date().toISOString().slice(0, 10) }),
+    h("label", { for: "df" }, "File o foto"), h("input", { id: "df", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px" }),
+    h("p", { class: "muted", style: "margin-top:6px" }, "Dal telefono puoi scattare una foto o scegliere un file (max 10 MB)."),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true; e.target.textContent = "Caricamento…";
+      const ok = await attempt(async () => {
+        const f0 = $("df").files[0]; if (!f0) throw new Error("Scegli un file o scatta una foto");
+        const f = await prepFile(f0);
+        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB)");
+        const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
+        const path = S.p.company_id + "/" + crypto.randomUUID() + "." + ext;
+        const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
+        if (up.error) throw up.error;
+        const amount = $("da").value;
+        const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: $("dj").value || null, kind: $("dk").value, title: $("dt").value.trim() || null,
+          amount: amount === "" ? null : Number(amount), doc_date: $("dd").value || null, file_path: path, file_name: f0.name, mime: f.type, size: f.size, uploaded_by: S.p.id });
+        if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
+      });
+      if (ok) back(); else { e.target.disabled = false; e.target.textContent = "Carica"; }
+    } }, "Carica")
+  ];
+}
+
+/* ---------- ore ---------- */
+async function hoursView() {
+  const since = monthStart().toISOString();
+  const entries = chk(await sb.from("time_entries").select("*, jobs(title)").gte("started_at", since).order("started_at", { ascending: false }));
+  const open = entries.find((e) => !e.ended_at);
+  const myJobs = chk(await sb.from("jobs").select("id,title").neq("status", "done").order("start_at", { nullsFirst: false }));
+  const total = entries.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
+  const act = (fn) => async () => { if (await attempt(fn)) render(); };
+  return [
+    h("h1", {}, "Le mie ore"),
+    open ? h("div", { class: "note", style: "margin-top:0" }, "Sei dentro dalle " + fTime(open.started_at) + " (" + dur(Date.now() - D(open.started_at)) + ")" + (open.jobs?.title ? " · " + open.jobs.title : "")) : null,
+    open
+      ? h("button", { class: "primary big out", onclick: act(async () => { chk(await sb.rpc("clock_out")); }) }, "Timbra uscita")
+      : [h("label", { for: "hj" }, "Lavoro (facoltativo)"), h("select", { id: "hj" }, h("option", { value: "" }, "— nessuno —"), myJobs.map((j) => h("option", { value: j.id }, j.title))),
+        h("button", { class: "primary big", onclick: act(async () => { chk(await sb.rpc("clock_in", { p_job: $("hj").value || null })); }) }, "Timbra entrata")],
+    h("h2", {}, "Questo mese: " + dur(total)),
+    entries.length ? h("div", { class: "card" }, entries.map((e, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
+      h("div", {}, h("div", {}, fDate(e.started_at)), h("div", { class: "muted" }, fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs?.title ? " · " + e.jobs.title : ""))),
+      h("strong", {}, dur((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)))))) : h("p", {}, "Nessuna timbratura questo mese.")
+  ];
+}
+
+/* ---------- team (datore) ---------- */
+async function teamView() {
+  await loadTeam();
+  const entries = chk(await sb.from("time_entries").select("user_id,started_at,ended_at").gte("started_at", monthStart().toISOString()));
+  const hours = {};
+  for (const e of entries) hours[e.user_id] = (hours[e.user_id] || 0) + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at));
+  const pending = S.team.filter((t) => t.status === "pending"), active = S.team.filter((t) => t.status === "active");
+  const decide = async (id, status) => { if (await attempt(async () => { chk(await sb.rpc("set_member_status", { p_user: id, p_status: status })); })) render(); };
+  return [
+    h("h1", {}, "Il tuo team"),
+    h("div", { class: "card row" }, h("div", {}, h("div", { class: "muted" }, "Codice azienda da condividere"), h("div", { class: "code" }, S.p.companies?.join_code)),
+      h("button", { class: "secondary", onclick: async (e) => { try { await navigator.clipboard.writeText(S.p.companies.join_code); e.target.textContent = "Copiato"; } catch { alert(S.p.companies.join_code); } } }, "Copia")),
+    h("h2", {}, "Richieste in attesa (" + pending.length + ")"),
+    pending.length ? pending.map((t) => h("div", { class: "card" }, h("div", {}, h("strong", {}, t.full_name), h("div", { class: "muted" }, t.email)),
+      h("div", { class: "btns" }, h("button", { class: "deny", onclick: () => decide(t.id, "rejected") }, "Rifiuta"), h("button", { class: "ok", onclick: () => decide(t.id, "active") }, "Accetta")))) : h("p", {}, "Nessuna richiesta."),
+    h("h2", {}, "Dipendenti attivi (" + active.length + ")"),
+    active.length ? active.map((t) => h("div", { class: "card" }, h("div", { class: "row" }, h("div", {}, h("strong", {}, t.full_name), h("div", { class: "muted" }, t.email)),
+      h("div", { style: "text-align:right" }, h("div", { class: "muted" }, "Ore del mese"), h("strong", {}, dur(hours[t.id] || 0)))),
+      h("button", { class: "ghost", style: "margin-top:6px;color:#A32121", onclick: () => { if (confirm("Rimuovere " + t.full_name + " dall'azienda?")) decide(t.id, "rejected"); } }, "Rimuovi"))) : h("p", {}, "Ancora nessun dipendente.")
+  ];
+}
+
+/* ---------- avvio ---------- */
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === "SIGNED_OUT") { S.p = null; S.tab = "jobs"; S.sub = null; S.stack = []; authScreen(); }
+  else if (event === "SIGNED_IN" && (!S.p || (session && session.user.id !== S.p.id))) boot();
+});
+if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js"); } catch { /* non essenziale */ } }
+boot();
 </script>
 </body>
 </html>
