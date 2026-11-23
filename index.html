@@ -60,7 +60,7 @@ function h(tag, attrs, ...kids) {
   }
   return el;
 }
-function show(...nodes) { root.replaceChildren(...nodes); }
+function show(...nodes) { root.replaceChildren(...nodes.flat().filter((n) => n != null && n !== false)); }
 function translate(msg) {
   const m = String(msg || "");
   if (m.includes("Codice azienda non valido")) return "Codice azienda non valido.";
@@ -72,18 +72,20 @@ function translate(msg) {
 }
 
 let mode = "login"; // login | owner | employee
+const form = { name: "", company: "", email: "", code: "" };
+function saveForm() { for (const k of ["name","company","email","code"]) { const el = document.getElementById(k === "code" ? "code" : k); if (el) form[k] = el.value; } }
 
 function authScreen(error, info) {
   const val = (id) => (document.getElementById(id) || {}).value || "";
-  const tab = (m, label) => h("button", { class: "tab" + (mode === m ? " on" : ""), onclick: () => { mode = m; authScreen(); } }, label);
+  const tab = (m, label) => h("button", { class: "tab" + (mode === m ? " on" : ""), onclick: () => { saveForm(); mode = m; authScreen(); } }, label);
   const fields = [];
-  if (mode !== "login") fields.push(h("label", { for: "name" }, "Nome e cognome"), h("input", { id: "name", autocomplete: "name" }));
-  if (mode === "owner") fields.push(h("label", { for: "company" }, "Nome dell'azienda"), h("input", { id: "company" }));
+  if (mode !== "login") fields.push(h("label", { for: "name" }, "Nome e cognome"), h("input", { id: "name", autocomplete: "name", value: form.name }));
+  if (mode === "owner") fields.push(h("label", { for: "company" }, "Nome dell'azienda"), h("input", { id: "company", value: form.company }));
   fields.push(
-    h("label", { for: "email" }, "Email"), h("input", { id: "email", type: "email", autocomplete: "email" }),
+    h("label", { for: "email" }, "Email"), h("input", { id: "email", type: "email", autocomplete: "email", value: form.email }),
     h("label", { for: "pass" }, "Password"), h("input", { id: "pass", type: "password", autocomplete: mode === "login" ? "current-password" : "new-password" })
   );
-  if (mode === "employee") fields.push(h("label", { for: "code" }, "Codice azienda"), h("input", { id: "code", autocapitalize: "characters" }));
+  if (mode === "employee") fields.push(h("label", { for: "code" }, "Codice azienda"), h("input", { id: "code", autocapitalize: "characters", value: form.code }));
   const titles = { login: "Accedi", owner: "Crea la tua azienda", employee: "Unisciti alla tua azienda" };
   const labels = { login: "Accedi", owner: "Crea azienda", employee: "Invia richiesta" };
   show(
@@ -97,6 +99,7 @@ function authScreen(error, info) {
     mode === "employee" ? h("div", { class: "note" }, "Il datore di lavoro dovrà approvare la richiesta prima che tu possa entrare.") : null,
     h("button", { class: "primary", onclick: async (e) => {
       e.target.disabled = true;
+      saveForm();
       const email = val("email").trim(), password = val("pass");
       try {
         if (mode === "login") {
