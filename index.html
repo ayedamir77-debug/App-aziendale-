@@ -425,6 +425,7 @@ async function render() {
       else if (sub.t === "clientForm") nodes = await clientForm(sub.id);
       else if (sub.t === "docForm") nodes = await docForm(sub.job);
       else if (sub.t === "docEdit") nodes = await docEditForm(sub.id);
+      else if (sub.t === "info") nodes = infoView();
       else if (sub.t === "quote") nodes = await quoteView(sub.id);
       else if (sub.t === "quoteForm") nodes = await quoteForm(sub.id);
       else if (sub.t === "invoiceForm") nodes = await invoiceForm(sub.id);
@@ -451,7 +452,7 @@ function topbar(isSub) {
   if (isSub) return h("div", { class: "top" }, h("button", { class: "ghost", onclick: back }, "← Indietro"));
   return h("div", { class: "top" },
     h("span", { class: "muted" }, S.p.companies?.name || ""),
-    h("span", {}, h("button", { class: "ghost", style: "margin-right:18px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
+    h("span", {}, h("button", { class: "ghost", style: "margin-right:14px", onclick: () => go({ t: "info" }) }, "Info"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
   const items = OWNER()
@@ -1657,6 +1658,7 @@ async function homeView() {
     h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!"),
     h("p", {}, today.length ? (open.length ? "Oggi hai " + open.length + (open.length === 1 ? " lavoro" : " lavori") + " in programma." : "Tutti i lavori di oggi sono completati. Ottimo!") : "Oggi non ci sono lavori in programma.")
   ];
+  nodes.push(weatherCard());
   if (OWNER()) {
     await loadTeam();
     const pending = S.team.filter((t) => t.status === "pending");
@@ -1690,6 +1692,91 @@ async function homeView() {
   if (next.length) nodes.push(h("h2", {}, "Nei prossimi giorni"), next.map(jobCard));
   return nodes;
 }
+
+
+/* ---------- meteo (Open-Meteo, gratuito, senza chiave) ---------- */
+const WX_CODES = { 0: ["☀️", "Sereno"], 1: ["🌤️", "Quasi sereno"], 2: ["⛅", "Poco nuvoloso"], 3: ["☁️", "Coperto"], 45: ["🌫️", "Nebbia"], 48: ["🌫️", "Nebbia"], 51: ["🌦️", "Pioviggine"], 53: ["🌦️", "Pioviggine"], 55: ["🌦️", "Pioviggine"], 61: ["🌧️", "Pioggia"], 63: ["🌧️", "Pioggia"], 65: ["🌧️", "Pioggia forte"], 66: ["🌧️", "Pioggia gelata"], 67: ["🌧️", "Pioggia gelata"], 71: ["🌨️", "Neve"], 73: ["🌨️", "Neve"], 75: ["🌨️", "Neve forte"], 77: ["🌨️", "Neve"], 80: ["🌦️", "Rovesci"], 81: ["🌧️", "Rovesci"], 82: ["⛈️", "Rovesci forti"], 85: ["🌨️", "Rovesci di neve"], 86: ["🌨️", "Rovesci di neve"], 95: ["⛈️", "Temporale"], 96: ["⛈️", "Temporale con grandine"], 99: ["⛈️", "Temporale con grandine"] };
+const wxCode = (c) => WX_CODES[c] || ["🌡️", "—"];
+function wxGet() { try { return JSON.parse(localStorage.getItem("wx_place") || "null"); } catch { return null; } }
+function wxSet(v) { try { localStorage.setItem("wx_place", JSON.stringify(v)); } catch { /* storage non disponibile */ } }
+async function wxGeocode(q) {
+  const r = await fetch("https://geocoding-api.open-meteo.com/v1/search?count=1&language=it&name=" + encodeURIComponent(q));
+  const j = await r.json();
+  const g = j.results && j.results[0];
+  return g ? { name: g.name, lat: g.latitude, lon: g.longitude } : null;
+}
+function cityFromAddress(a) {
+  const parts = String(a || "").split(",").map((x) => x.trim()).filter(Boolean);
+  const last = parts[parts.length - 1] || "";
+  return last.replace(/\b\d{5}\b/g, "").replace(/\(.*?\)/g, "").trim();
+}
+function weatherCard() {
+  const box = h("div", { class: "card" }, h("div", { class: "muted" }, "Meteo: caricamento…"));
+  const draw = async (place) => {
+    try {
+      const u = "https://api.open-meteo.com/v1/forecast?latitude=" + place.lat + "&longitude=" + place.lon + "&current=temperature_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&timezone=auto&forecast_days=4";
+      const j = await (await fetch(u)).json();
+      const c = j.current, d = j.daily, [ic, tx] = wxCode(c.weather_code);
+      const days = d.time.slice(1).map((t, i) => {
+        const k = i + 1, [i2] = wxCode(d.weather_code[k]);
+        return h("div", { style: "text-align:center;flex:1" }, h("div", { class: "muted", style: "text-transform:capitalize" }, new Date(t + "T12:00").toLocaleDateString("it-IT", { weekday: "short" })), h("div", { style: "font-size:22px" }, i2), h("div", {}, Math.round(d.temperature_2m_max[k]) + "° / " + Math.round(d.temperature_2m_min[k]) + "°"), h("div", { class: "muted" }, "💧" + (d.precipitation_probability_max[k] ?? 0) + "%"));
+      });
+      box.replaceChildren(
+        h("div", { class: "row" },
+          h("div", {}, h("div", { class: "muted" }, "📍 " + place.name), h("div", { style: "font-size:30px;font-weight:700" }, ic + " " + Math.round(c.temperature_2m) + "°"), h("div", {}, tx)),
+          h("div", { style: "text-align:right" }, h("div", {}, "Oggi " + Math.round(d.temperature_2m_max[0]) + "° / " + Math.round(d.temperature_2m_min[0]) + "°"), h("div", { class: "muted" }, "💧 pioggia " + (d.precipitation_probability_max[0] ?? 0) + "%"), h("div", { class: "muted" }, "💨 " + Math.round(c.wind_speed_10m) + " km/h"))),
+        h("div", { style: "display:flex;gap:6px;margin-top:10px" }, days),
+        h("div", { class: "btns", style: "margin-top:8px" },
+          h("button", { class: "ghost", onclick: () => ask("gps") }, "📍 Dove sono"),
+          h("button", { class: "ghost", onclick: () => ask("city") }, "Cambia città")));
+    } catch { box.replaceChildren(h("div", { class: "muted" }, "Meteo non disponibile (serve internet)."), h("button", { class: "ghost", onclick: () => ask("city") }, "Imposta città")); }
+  };
+  const ask = async (mode) => {
+    if (mode === "gps") {
+      if (!navigator.geolocation) { alert("Posizione non disponibile su questo dispositivo."); return; }
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const name = "La tua posizione";
+        const pl = { name, lat: pos.coords.latitude, lon: pos.coords.longitude, gps: true };
+        wxSet(pl); draw(pl);
+      }, () => alert("Permesso di posizione negato."), { timeout: 10000 });
+    } else {
+      const q = prompt("Per quale città vuoi il meteo?", wxGet()?.gps ? "" : (wxGet()?.name || ""));
+      if (!q) return;
+      const g = await wxGeocode(q).catch(() => null);
+      if (!g) { alert("Città non trovata."); return; }
+      wxSet(g); draw(g);
+    }
+  };
+  (async () => {
+    let pl = wxGet();
+    if (!pl) { const city = cityFromAddress(co().address); if (city) pl = await wxGeocode(city).catch(() => null); if (pl) wxSet(pl); }
+    if (pl) draw(pl); else box.replaceChildren(h("div", { class: "muted" }, "Meteo: scegli la città."), h("button", { class: "secondary", onclick: () => ask("city") }, "Imposta città"));
+  })();
+  return box;
+}
+
+/* ---------- info app ---------- */
+const APP_NEWS = [
+  ["Lettura bolle", "Fotografi la bolla e l'app legge le righe (descrizione, quantità, unità) e le mette in una lista ordinata."],
+  ["Materiali del lavoro", "Le righe lette dalla bolla finiscono anche nella lista materiali del lavoro scelto."],
+  ["Archivio intelligente", "Legge fatture, bolle e PDF (anche scansionati), compila i dati e dà un nome standard: AAAA-MM-GG_Tipo_Controparte_N-Numero_ImportoEUR."],
+  ["Ricerca e filtri", "Cerchi per nome, tipo e anno; scarichi tutto in ZIP o CSV."],
+  ["Modifica dati documento", "Il titolare può correggere i dati letti."],
+  ["Ore dei dipendenti", "In Ufficio le ore di tutti, esportabili in CSV."],
+  ["Password dimenticata", "Recupero password dalla schermata di accesso."],
+  ["Team", "Rifiutati o rimossi con tasto Riattiva."],
+  ["Meteo in Home", "Meteo di oggi e dei prossimi giorni; si può cambiare città o usare la posizione."]
+];
+function infoView() {
+  return [
+    h("h1", {}, "Info sull'app"),
+    h("div", { class: "card" }, h("strong", {}, "Gestione aziendale"), h("div", { class: "muted" }, "Lavori, clienti, agenda, documenti, ore e ufficio in un'unica app per l'azienda."),
+      h("div", { class: "muted", style: "margin-top:6px" }, "Versione: " + APP_VERSION)),
+    h("h2", {}, "Ultime novità"),
+    APP_NEWS.map(([t, d]) => h("div", { class: "card" }, h("strong", {}, t), h("div", { class: "muted" }, d)))
+  ];
+}
+const APP_VERSION = "24 novembre 2026";
 
 /* ---------- team (datore) ---------- */
 async function teamView() {
