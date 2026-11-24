@@ -15,7 +15,13 @@ body{margin:0;background:#F6F7F8;color:#14202B;font-family:system-ui,-apple-syst
 h1{font-size:24px;line-height:30px;margin:10px 0 12px}
 h2{font-size:16px;margin:22px 0 10px}
 p{margin:0 0 10px;line-height:1.45;color:#4E5A66}
-.logo{width:44px;height:44px;border-radius:12px;background:#1B6A86}
+.logo{width:44px;height:44px;border-radius:12px;background:#14202B;color:#F5B800;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex:none}
+.logo img{width:100%;height:100%;object-fit:contain;background:#fff}
+.hero{background:linear-gradient(135deg,#14202B 0%,#1B6A86 100%);color:#fff;border-radius:16px;padding:16px;margin:6px 0 4px;position:relative;overflow:hidden}
+.hero .nm{font-size:18px;font-weight:700;line-height:22px}
+.hero .tg{font-size:12px;opacity:.8;margin-top:2px}
+.hero .ico{display:flex;gap:10px;font-size:20px;margin-top:12px;opacity:.95}
+.hero::after{content:'⚡';position:absolute;right:-6px;top:-18px;font-size:96px;opacity:.10}
 label{display:block;font-size:13px;font-weight:600;margin:14px 0 6px}
 input,select,textarea{width:100%;border:1px solid #C9D0D6;border-radius:10px;padding:0 14px;font-size:16px;background:#fff;font-family:inherit;color:#14202B}
 input,select{height:48px}
@@ -104,6 +110,14 @@ function h(tag, attrs, ...kids) {
   return el;
 }
 const $ = (id) => document.getElementById(id);
+/* logo dell'azienda: se nella cartella dell'app c'è "logo.png" lo usa, altrimenti mostra il fulmine */
+function logoBox(size) {
+  const d = h("div", { class: "logo", style: size ? "width:" + size + "px;height:" + size + "px;font-size:" + Math.round(size * 0.55) + "px" : "" }, "⚡");
+  const img = new Image(); img.alt = "Logo"; img.onload = () => { d.replaceChildren(img); }; img.src = "logo.png";
+  return d;
+}
+const JOB_ICONS = [[/cancell|automazion|basculant|sbarra|portone/, "🚪"], [/telecamer|videosorv|cctv|nvr|dvr/, "📹"], [/allarm|antifurt|sirena|sensor|centrale/, "🚨"], [/antenn|parabol|sat\b|digitale|tv\b|decoder/, "📡"], [/rete|internet|wifi|wi-fi|router|fibra|cablagg|\blan\b|switch/, "🌐"], [/domotic|home assistant|smart|knx|automazione casa/, "🏠"], [/quadro|industrial|capannone|motore|trifase|cabina|officina/, "🏭"], [/luce|luci|illumin|led|faretti/, "💡"]];
+const jobIcon = (t) => { const n = String(t || "").toLowerCase(); for (const [re, ic] of JOB_ICONS) if (re.test(n)) return ic; return "⚡"; };
 function show(...nodes) { root.replaceChildren(...nodes.flat(Infinity).filter((n) => n != null && n !== false)); }
 const D = (s) => new Date(s);
 const fDate = (s) => D(s).toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" });
@@ -342,7 +356,7 @@ function authScreen(error, info) {
   const titles = { login: "Accedi", owner: "Crea la tua azienda", employee: "Unisciti alla tua azienda" };
   const labels = { login: "Accedi", owner: "Crea azienda", employee: "Invia richiesta" };
   show(
-    h("div", { class: "logo" }), h("h1", {}, titles[mode]),
+    logoBox(), h("h1", {}, titles[mode]),
     mode === "employee" ? h("p", {}, "Usa il codice che ti ha dato il datore di lavoro.") : null,
     h("div", { class: "tabs" }, tab("login", "Accedi"), tab("employee", "Dipendente"), tab("owner", "Datore")),
     ...fields,
@@ -596,7 +610,7 @@ async function stockForm(sub) {
 }
 
 /* ---------- biblioteca tecnica ---------- */
-const LIB_CATS = ["Centraline", "Orologi e timer", "Termostati", "Moduli e relè", "Router e rete", "Telecamere", "Sensori", "Altro"];
+const LIB_CATS = ["Cancelli e automazioni", "Antenne e TV", "Quadri elettrici", "Allarmi", "Centraline", "Orologi e timer", "Termostati", "Moduli e relè", "Router e rete", "Telecamere", "Sensori", "Altro"];
 async function libraryView() {
   let cat = S.libCat || "all", q = S.libQ || "", favOnly = !!S.libFav;
   const list = h("div"), inp = h("input", { placeholder: "Cerca marca, modello o una parola dentro il manuale…", value: q });
@@ -771,6 +785,11 @@ async function kmView() {
 
 /* ---------- checklist ---------- */
 const BUILTIN_TPL = [
+  { name: "Cancello automatico", items: ["Fotocellule allineate e provate", "Costa di sicurezza e arresto per ostacolo provati", "Finecorsa e regolazione della forza", "Telecomandi memorizzati e provati", "Lampeggiante e segnalazioni funzionanti", "Sblocco manuale spiegato al cliente", "Dichiarazione di conformità e libretto consegnati"] },
+  { name: "Antenna TV / satellitare", items: ["Segnale misurato (livello e qualità)", "Staffe e ancoraggi fissati", "Cavi guaina e connettori protetti", "Tutte le prese provate", "Ricerca canali eseguita", "Cliente informato su eventuali ricalibrazioni"] },
+  { name: "Rete / Internet / Wi-Fi", items: ["Cablaggio provato e etichettato", "Router/switch configurati", "Copertura Wi-Fi verificata nei locali", "Password cambiate e consegnate", "Velocità misurata", "Schema della rete consegnato"] },
+  { name: "Impianto civile (abitazione)", items: ["Differenziali e magnetotermici provati", "Messa a terra e continuità verificate", "Punti luce e prese provati", "Frutti e placche montati", "Quadro etichettato", "Dichiarazione di conformità compilata"] },
+  { name: "Impianto industriale / quadro", items: ["Quadro cablato come da schema", "Protezioni tarate e verificate", "Messa a terra e collegamenti equipotenziali", "Prova di funzionamento macchine/motori", "Misure di isolamento registrate", "Schemi e dichiarazione di conformità consegnati"] },
   { name: "Collaudo impianto domotico", items: ["Alimentazioni e quadro verificati", "Rete e indirizzi IP assegnati", "Dispositivi associati in Home Assistant", "Scenari e automazioni provati", "Accesso remoto e backup configurati", "Cliente istruito sull'uso", "Documentazione e accessi consegnati"] },
   { name: "Videosorveglianza", items: ["Telecamere posizionate e inquadrature verificate", "Registratore/NVR configurato", "Registrazioni e riproduzione provate", "Accesso da telefono del cliente", "Password cambiate e consegnate"] },
   { name: "Antifurto", items: ["Centrale e alimentazione verificate", "Sensori provati uno per uno", "Sirene e comunicatore provati", "Codici e utenti configurati", "Cliente istruito sull'uso"] },
@@ -1201,7 +1220,7 @@ async function chatView() { return [h("h1", {}, "Chat dell'azienda"), h("p", { c
 
 /* ---------- avvio ---------- */
 function recoveryScreen(err) {
-  show(h("div", { class: "logo" }), h("h1", {}, "Nuova password"), h("p", {}, "Scegli la nuova password per il tuo account."),
+  show(logoBox(), h("h1", {}, "Nuova password"), h("p", {}, "Scegli la nuova password per il tuo account."),
     h("label", { for: "np1" }, "Nuova password"), h("input", { id: "np1", type: "password", autocomplete: "new-password" }),
     err ? h("div", { class: "err" }, err) : null,
     h("button", { class: "primary", onclick: async (e) => {
@@ -1229,10 +1248,10 @@ async function boot() {
   }
 }
 function waitScreen(p) {
-  if (p.status === "pending") show(h("div", { class: "logo" }), h("h1", {}, "Richiesta inviata"),
+  if (p.status === "pending") show(logoBox(), h("h1", {}, "Richiesta inviata"),
     h("p", {}, "Il datore di lavoro di " + (p.companies?.name || "questa azienda") + " deve approvare la tua richiesta. Riapri l'app più tardi."),
     h("button", { class: "secondary primary", onclick: boot }, "Controlla ora"), h("button", { class: "ghost", onclick: logout }, "Esci"));
-  else show(h("div", { class: "logo" }), h("h1", {}, "Richiesta rifiutata"),
+  else show(logoBox(), h("h1", {}, "Richiesta rifiutata"),
     h("p", {}, "Il datore di lavoro non ha approvato la richiesta. Contattalo per informazioni."), h("button", { class: "ghost", onclick: logout }, "Esci"));
 }
 async function loadTeam() {
@@ -1285,7 +1304,7 @@ async function render() {
 function topbar(isSub) {
   if (isSub) return h("div", { class: "top" }, h("button", { class: "ghost", onclick: back }, "← Indietro"));
   return h("div", { class: "top" },
-    h("span", { class: "muted" }, S.p.companies?.name || ""),
+    h("span", { class: "muted", style: "display:flex;align-items:center;gap:8px" }, logoBox(28), S.p.companies?.name || ""),
     h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
@@ -1300,7 +1319,7 @@ function jobCard(j) {
   const names = OWNER() ? (j.job_assignments || []).map((a) => nameOf(a.user_id)).filter(Boolean).join(", ") : "";
   return h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "job", id: j.id }) },
     h("div", { class: "row" }, h("span", { class: "when" }, j.start_at ? fDate(j.start_at) + " · " + fTime(j.start_at) + (j.end_at ? "–" + fTime(j.end_at) : "") : "Senza data"), badge(j.status)),
-    h("div", { class: "title" }, j.title),
+    h("div", { class: "title" }, jobIcon(j.title) + " " + j.title),
     j.clients?.name ? h("div", { class: "muted" }, j.clients.name) : null,
     j.address ? h("div", { class: "muted" }, j.address) : null,
     names ? h("div", { class: "muted", style: "margin-top:4px" }, "👷 " + names) : null);
@@ -1332,7 +1351,7 @@ async function jobView(id) {
   const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
   const ck = await jobChecklists(j).catch(() => null), cost = OWNER() ? await jobCostCard(j, docs).catch(() => null) : null;
   return [
-    h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, j.title), badge(j.status)),
+    h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, jobIcon(j.title) + " " + j.title), badge(j.status)),
     j.start_at ? h("p", { class: "when" }, "🕒 " + fDT(j.start_at) + (j.end_at ? " → " + fTime(j.end_at) : "")) : null,
     j.clients ? h("div", { class: "card" },
       h("div", { class: "muted" }, "Cliente"), h("div", { class: "title", style: "margin-top:2px" }, j.clients.name),
@@ -2520,6 +2539,8 @@ async function homeView() {
   const first = (S.p.full_name || "").split(" ")[0];
   const open = today.filter((j) => j.status !== "done");
   const nodes = [
+    h("div", { class: "hero" }, h("div", { style: "display:flex;align-items:center;gap:12px" }, logoBox(52), h("div", {}, h("div", { class: "nm" }, S.p.companies?.name || "La tua azienda"), h("div", { class: "tg" }, "Impianti elettrici · Sicurezza · Reti · Domotica"))),
+      h("div", { class: "ico", "aria-hidden": "true" }, ["⚡", "🚪", "📹", "🚨", "🌐", "📡", "🏠"].map((x) => h("span", {}, x)))),
     h("p", { class: "muted", style: "margin:8px 0 0;text-transform:capitalize" }, now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
     h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!"),
     h("p", {}, today.length ? (open.length ? "Oggi hai " + open.length + (open.length === 1 ? " lavoro" : " lavori") + " in programma." : "Tutti i lavori di oggi sono completati. Ottimo!") : "Oggi non ci sono lavori in programma.")
@@ -2632,6 +2653,7 @@ function weatherCard() {
 
 /* ---------- info app ---------- */
 const APP_NEWS = [
+  ["Logo e immagine", "Spazio per il logo dell'azienda in Home, nel login e in alto, e icone dei lavori (cancelli, telecamere, allarmi, reti, antenne, domotica). Nuovi modelli di checklist per cancelli, antenne, reti, impianti civili e industriali."],
   ["Chat dell'azienda", "Una chat in Home: quello che scrivi lo leggono il titolare e tutti i colleghi."],
   ["Rapportini di fine giornata", "Cosa si è fatto, con chi eri, materiale nostro o comprato (confrontato con le bolle) e commenti per chiarimenti. Visibili a tutti, nessun obbligo."],
   ["Magazzino", "Elenco del materiale in sede, con + e −, e creazione dell'elenco da foto di etichette."],
