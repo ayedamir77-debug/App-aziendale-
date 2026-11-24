@@ -420,6 +420,7 @@ function moreView() {
     h("h1", {}, "Altro"),
     h("h2", {}, "Lavoro di ogni giorno"),
     tile("📝", "Rapportini", "Cosa si è fatto oggi, con chi e che materiale", () => go({ t: "reports" })),
+    tile("💬", "Chat", "Scrivi a tutta l'azienda", () => go({ t: "chat" })),
     tile("📣", "Bacheca", "Avvisi e comunicazioni per tutti", () => go({ t: "posts" })),
     tile("🔔", "Novità", "Cosa è successo dall'ultima volta", () => go({ t: "news" })),
     tile("🔎", "Cerca ovunque", "Lavori, clienti, documenti, manuali, magazzino", () => go({ t: "search" })),
@@ -1001,6 +1002,7 @@ async function newsItems() {
   await loadTeam();
   const t = async (fn) => { try { await fn(); } catch { /* sezione non disponibile */ } };
   await t(async () => { chk(await sb.from("comments").select("*").gt("created_at", iso).neq("user_id", S.p.id).order("created_at", { ascending: false }).limit(20)).forEach((c) => out.push({ at: c.created_at, text: who(c.user_id) + " ha commentato: " + c.body.slice(0, 80), go: { t: c.ref_type === "post" ? "posts" : "reports" } })); });
+  await t(async () => { chk(await sb.from("chat_messages").select("*").gt("created_at", iso).neq("user_id", S.p.id).order("created_at", { ascending: false }).limit(10)).forEach((m) => out.push({ at: m.created_at, text: "Chat – " + who(m.user_id) + ": " + m.body.slice(0, 80), go: { t: "chat" } })); });
   await t(async () => { chk(await sb.from("posts").select("*").gt("created_at", iso).neq("user_id", S.p.id).limit(10)).forEach((p) => out.push({ at: p.created_at, text: "Bacheca – " + who(p.user_id) + ": " + p.body.slice(0, 80), go: { t: "posts" } })); });
   await t(async () => { chk(await sb.from("reports").select("*").gt("created_at", iso).neq("user_id", S.p.id).limit(10)).forEach((r) => out.push({ at: r.created_at, text: "Nuovo rapportino di " + who(r.user_id), go: { t: "reports" } })); });
   if (!OWNER()) await t(async () => { chk(await sb.from("jobs").select("id,title,created_at").gt("created_at", iso).limit(10)).forEach((j) => out.push({ at: j.created_at, text: "Nuovo lavoro: " + j.title, go: { t: "job", id: j.id } })); });
@@ -1075,7 +1077,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
@@ -1165,6 +1167,45 @@ async function fuelForm(sub) {
       await uploadDoc(f, "scontrino", null, null, { party: "Carburante " + (v.plate || v.name), amount: amt, date: $("f_d").value || undefined, vehicle: vid }); });
       if (ok) back(); else e.target.disabled = false; } }, "Salva scontrino")];
 }
+
+
+/* ---------- chat interna (visibile a tutta l'azienda) ---------- */
+function chatBox(limit, tall) {
+  const list = h("div", { style: "max-height:" + (tall ? "60vh" : "280px") + ";overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:2px" });
+  const inp = h("input", { placeholder: "Scrivi a tutti…", style: "flex:1;min-width:0", "aria-label": "Messaggio", maxlength: "2000" });
+  const msg = h("p", { class: "muted", style: "margin:6px 0 0" });
+  const box = h("div", {}, list, h("div", { style: "display:flex;gap:8px;margin-top:10px" }, inp, h("button", { class: "ok", style: "height:48px", onclick: () => send() }, "Invia")), msg);
+  let last = null, busy = false, teamOk = false;
+  const draw = (rows) => {
+    const sig = rows.map((r) => r.id).join();
+    if (sig === last) return; last = sig;
+    const atEnd = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+    list.replaceChildren(...(rows.length ? rows.map((r) => { const mine = r.user_id === S.p.id;
+      return h("div", { style: "align-self:" + (mine ? "flex-end" : "flex-start") + ";max-width:85%;background:" + (mine ? "#DCEFF5" : "#EEF0F2") + ";border-radius:12px;padding:8px 12px" },
+        h("div", { class: "muted", style: "font-size:12px" }, (mine ? "Tu" : who(r.user_id)) + " · " + (sameDay(D(r.created_at), new Date()) ? fTime(r.created_at) : fDT(r.created_at))),
+        h("div", { style: "white-space:pre-wrap;word-break:break-word" }, r.body),
+        (mine || OWNER()) ? h("button", { class: "ghost", style: "font-size:12px;color:#A32121;padding:2px 0", onclick: async () => { if (confirm("Eliminare il messaggio?") && await attempt(async () => { chk(await sb.from("chat_messages").delete().eq("id", r.id)); })) load(); } }, "Elimina") : null); })
+      : [h("p", { class: "muted", style: "margin:0" }, "Nessun messaggio: scrivi il primo.")]));
+    if (atEnd || rows.length) list.scrollTop = list.scrollHeight;
+  };
+  async function load() {
+    if (busy) return; busy = true;
+    try { if (!teamOk) { await loadTeam(); teamOk = true; } const rows = chk(await sb.from("chat_messages").select("*").order("created_at", { ascending: false }).limit(limit)); draw(rows.reverse()); msg.textContent = ""; }
+    catch (e) { msg.textContent = /chat_messages|permission/i.test(String(e.message || e)) ? "La chat non è ancora attiva (manca un passaggio su Supabase)." : "Chat non disponibile ora."; }
+    busy = false;
+  }
+  async function send() {
+    const body = inp.value.trim(); if (!body) return;
+    inp.value = ""; 
+    try { chk(await sb.from("chat_messages").insert({ company_id: S.p.company_id, user_id: S.p.id, body })); await load(); } catch (e) { inp.value = body; alert(translate(e.message || e)); }
+  }
+  inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
+  load();
+  const t = setInterval(() => { if (!box.isConnected) { clearInterval(t); return; } if (!document.hidden) load(); }, 25000);
+  return box;
+}
+function chatCard() { return h("div", { class: "card" }, h("div", { class: "row", style: "margin-bottom:8px" }, h("strong", {}, "💬 Chat dell'azienda"), h("button", { class: "ghost", style: "padding:0", onclick: () => go({ t: "chat" }) }, "Apri ›")), chatBox(15, false)); }
+async function chatView() { return [h("h1", {}, "Chat dell'azienda"), h("p", { class: "muted" }, "Tutto quello che scrivi lo leggono il titolare e tutti i colleghi."), chatBox(100, true)]; }
 
 /* ---------- avvio ---------- */
 function recoveryScreen(err) {
@@ -2492,7 +2533,7 @@ async function homeView() {
     h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!"),
     h("p", {}, today.length ? (open.length ? "Oggi hai " + open.length + (open.length === 1 ? " lavoro" : " lavori") + " in programma." : "Tutti i lavori di oggi sono completati. Ottimo!") : "Oggi non ci sono lavori in programma.")
   ];
-  nodes.push(weatherCard());
+  nodes.push(weatherCard(), chatCard());
   if (OWNER()) {
     await loadTeam();
     const pending = S.team.filter((t) => t.status === "pending");
@@ -2600,6 +2641,7 @@ function weatherCard() {
 
 /* ---------- info app ---------- */
 const APP_NEWS = [
+  ["Chat dell'azienda", "Una chat in Home: quello che scrivi lo leggono il titolare e tutti i colleghi."],
   ["Rapportini di fine giornata", "Cosa si è fatto, con chi eri, materiale nostro o comprato (confrontato con le bolle) e commenti per chiarimenti. Visibili a tutti, nessun obbligo."],
   ["Magazzino", "Elenco del materiale in sede, con + e −, e creazione dell'elenco da foto di etichette."],
   ["Biblioteca tecnica", "Schede, manuali e istruzioni per centraline, orologi, termostati… cercabili anche per parole dentro il PDF."],
