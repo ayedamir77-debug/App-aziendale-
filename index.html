@@ -1418,6 +1418,9 @@ async function jobForm(id) {
     h("label", { for: "js" }, "Inizio"), h("input", { id: "js", type: "datetime-local", value: toInput(j.start_at) }),
     h("label", { for: "je" }, "Fine"), h("input", { id: "je", type: "datetime-local", value: toInput(j.end_at) }),
     h("label", { for: "jd" }, "Descrizione"), h("textarea", { id: "jd", rows: "4", placeholder: "Cosa c'è da fare…" }, j.description || ""),
+    h("label", { for: "jl" }, id ? "Aggiungi punti da spuntare (uno per riga)" : "Punti da spuntare (uno per riga)"),
+    h("textarea", { id: "jl", rows: "4", placeholder: "Es.\nPosare i tubi\nTirare i cavi\nCollaudo" }),
+    h("p", { class: "muted", style: "margin:4px 0 0" }, "Diventano una lista che voi spuntate dentro il lavoro."),
     h("label", {}, "Assegna a"),
     staff.length ? h("div", { class: "card" }, staff.map((t) => h("label", { style: "display:flex;align-items:center;gap:12px;margin:6px 0;font-weight:500;font-size:16px" },
       h("input", { type: "checkbox", class: "as", value: t.id, checked: assigned.has(t.id), style: "width:22px;height:22px" }), t.full_name))) : h("p", {}, "Non hai ancora dipendenti attivi."),
@@ -1432,6 +1435,13 @@ async function jobForm(id) {
         let jobId = id;
         if (id) chk(await sb.from("jobs").update(payload).eq("id", id));
         else { const r = chk(await sb.from("jobs").insert({ ...payload, company_id: S.p.company_id, created_by: S.p.id, status: "todo" }).select().single()); jobId = r.id; }
+        const pts = $("jl").value.split("\n").map((x) => x.replace(/^[\s\-•*\d.)]+/, "").trim()).filter(Boolean);
+        if (pts.length) {
+          const ex = id ? chk(await sb.from("job_checklists").select("*").eq("job_id", jobId).eq("name", "Da fare")) : [];
+          const add = pts.map((t) => ({ t, d: false }));
+          if (ex.length) chk(await sb.from("job_checklists").update({ items: [...(Array.isArray(ex[0].items) ? ex[0].items : []), ...add] }).eq("id", ex[0].id));
+          else chk(await sb.from("job_checklists").insert({ company_id: S.p.company_id, job_id: jobId, name: "Da fare", items: add }));
+        }
         const ids = [...document.querySelectorAll(".as")].filter((c) => c.checked).map((c) => c.value);
         chk(await sb.from("job_assignments").delete().eq("job_id", jobId));
         if (ids.length) chk(await sb.from("job_assignments").insert(ids.map((u) => ({ job_id: jobId, user_id: u }))));
