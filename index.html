@@ -67,6 +67,10 @@ button:disabled{opacity:.6}
 #rbar{position:fixed;left:0;right:0;bottom:62px;margin:0 auto;max-width:560px;background:#14202B;color:#fff;display:none;align-items:center;padding:4px 10px;z-index:6;border-radius:12px 12px 0 0;font-size:14px}
 #rbar .ghost{color:#fff}
 #offl{position:fixed;top:0;left:0;right:0;background:#E08A00;color:#fff;text-align:center;font-size:13px;padding:4px;z-index:9;display:none}
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.sq{height:auto;min-height:96px;aspect-ratio:1/0.95;background:#fff;border:1px solid #DDE2E6;border-radius:14px;color:#14202B;font-size:13px;font-weight:600;line-height:1.2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 4px;text-align:center}
+.sq .ic{font-size:28px;line-height:30px}
+.sq:active{background:#E3F0F5}
 hr{border:0;border-top:1px solid #EAEDEF;margin:12px 0}
 </style>
 </head>
@@ -412,32 +416,20 @@ async function commentsFor(type, ids) {
   const m = {}; for (const r of rows) (m[r.ref_id] = m[r.ref_id] || []).push(r); return m;
 }
 
-/* ---------- hub "Altro" ---------- */
+/* ---------- Menu (tutte le sezioni, in quadrati) ---------- */
 function moreView() {
-  const tile = (icon, title, sub, fn) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: fn, style: "margin-bottom:10px" },
-    h("div", { class: "row" }, h("div", {}, h("strong", {}, icon + "  " + title), h("div", { class: "muted" }, sub)), h("span", { class: "when" }, "›")));
+  const own = OWNER();
+  const sq = (icon, title, fn) => h("button", { class: "sq", onclick: fn }, h("span", { class: "ic" }, icon), h("span", {}, title));
+  const group = (title, items) => { const it = items.filter(Boolean); return it.length ? [h("h2", {}, title), h("div", { class: "grid" }, it)] : null; };
+  const T = (k) => () => setTab(k), G = (t) => () => go({ t });
   return [
-    h("h1", {}, "Altro"),
-    h("h2", {}, "Lavoro di ogni giorno"),
-    tile("📝", "Rapportini", "Cosa si è fatto oggi, con chi e che materiale", () => go({ t: "reports" })),
-    tile("💬", "Chat", "Scrivi a tutta l'azienda", () => go({ t: "chat" })),
-    tile("📣", "Bacheca", "Avvisi e comunicazioni per tutti", () => go({ t: "posts" })),
-    tile("🔔", "Novità", "Cosa è successo dall'ultima volta", () => go({ t: "news" })),
-    tile("🔎", "Cerca ovunque", "Lavori, clienti, documenti, manuali, magazzino", () => go({ t: "search" })),
-    h("h2", {}, "Tecnica e magazzino"),
-    tile("📚", "Biblioteca tecnica", "Schede, manuali e istruzioni da ritrovare", () => go({ t: "library" })),
-    tile("📦", "Magazzino", "Materiale in sede, anche da foto", () => go({ t: "stock" })),
-    tile("🏠", "Schede impianto", "IP, accessi e note di ogni casa", () => go({ t: "assets" })),
-    tile("✅", "Modelli di checklist", "Elenchi da spuntare sul lavoro", () => go({ t: "tpls" })),
-    tile("🛠️", "Garanzie e manutenzioni", "Scadenze per cliente", () => go({ t: "warr" })),
-    h("h2", {}, "Persone e mezzi"),
-    tile("🏖️", "Ferie e permessi", "Richieste e approvazioni", () => go({ t: "leave" })),
-    tile("🚐", "Mezzi", "Veicoli, scadenze e scontrini carburante", () => go({ t: "vehicles" })),
-    OWNER() ? tile("👥", "Team", "Richieste di accesso e dipendenti", () => setTab("team")) : null,
-    h("h2", {}, "Svago e impostazioni"),
-    tile("📻", "Radio", "Ascolta mentre lavori", () => go({ t: "radio" })),
-    OWNER() ? tile("🤖", "Assistente IA e impostazioni extra", "IA, costo orario, posizione", () => go({ t: "extra" })) : tile("🤖", "Assistente IA", "Informazioni", () => go({ t: "extra" })),
-    tile("ℹ️", "Info sull'app", "Versione e ultime novità", () => go({ t: "info" }))
+    h("h1", {}, "Menu"),
+    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports")), own ? sq("✅", "Modelli checklist", G("tpls")) : null]),
+    group("Documenti e soldi", [sq("🗂️", "Documenti", T("docs")), own ? sq("💼", "Ufficio", T("office")) : null, own ? sq("✉️", "Solleciti", G("chase")) : null]),
+    group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Schede impianto", G("assets")), sq("📦", "Magazzino", G("stock"))]),
+    group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
+    group("Mezzi e scadenze", [sq("🚐", "Mezzi", G("vehicles")), sq("🛠️", "Garanzie e manutenzioni", G("warr"))]),
+    group("Strumenti", [sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
   ];
 }
 
@@ -1297,10 +1289,9 @@ function topbar(isSub) {
     h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
-  const items = OWNER()
-    ? [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["clients", "Clienti"], ["docs", "Documenti"], ["office", "Ufficio"], ["more", "Altro"]]
-    : [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["docs", "Documenti"], ["hours", "Ore"], ["more", "Altro"]];
-  return h("div", { class: "nav" }, items.map(([k, l]) => h("button", { class: S.tab === k ? "on" : "", onclick: () => setTab(k) }, l)));
+  const items = [["home", "🏠", "Home"], ["jobs", "🔧", "Lavori"], ["cal", "📅", "Agenda"], ["more", "☰", "Menu"]];
+  const cur = ["home", "jobs", "cal"].includes(S.tab) ? S.tab : "more";
+  return h("div", { class: "nav" }, items.map(([k, ic, l]) => h("button", { class: cur === k ? "on" : "", onclick: () => setTab(k) }, h("span", { style: "display:block;font-size:20px;line-height:22px" }, ic), l)));
 }
 const badge = (s) => h("span", { class: "badge b-" + s }, STATUS[s]);
 
