@@ -166,9 +166,12 @@ function parseDoc(raw, ctx) {
   const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
   const out = { kind: "altro", date: null, number: "", party: "", amount: null, rate: null, issuedByOwn: false };
   const ownN = normTxt(ctx.own && ctx.own.name);
+  const ownVat = String((ctx.own && ctx.own.vat) || "").replace(/\D/g, "");
+  const vatAt = ownVat.length >= 8 ? lines.findIndex((l) => l.replace(/\D/g, "").includes(ownVat)) : -1;   // la P.IVA propria segna l'intestazione propria
   const isOwn = (s) => { const n = normTxt(s); return !!ownN && n.length > 3 && (n.includes(ownN) || ownN.includes(n)); };
+  const ownLine = (i) => vatAt >= 0 && i >= Math.max(0, vatAt - 2) && i <= vatAt;
   const low = text.toLowerCase(), head = lines.slice(0, 12).join("\n").toLowerCase();
-  out.issuedByOwn = lines.slice(0, 3).some(isOwn);
+  out.issuedByOwn = lines.slice(0, 3).some(isOwn) || (vatAt >= 0 && vatAt <= 3);
   /* tipo */
   const KW = {
     conformita: /dichiarazione di conformit|d\.? ?m\.? ?37|37\/0?8/g,
@@ -219,21 +222,64 @@ function parseDoc(raw, ctx) {
   const nt = " " + normTxt(text) + " ";
   const known = clients.find((x) => nt.includes(" " + x.n + " "));
   if (known && !isOwn(known.c)) out.party = known.c;
+  if (!out.party) {
+    const hi = lines.slice(0, 7).findIndex((l, i) => l.length >= 3 && l.length <= 60 && !isOwn(l) && !ownLine(i) && !BAD_HEAD.test(l) && COMPANY_RE.test(l));
+    if (hi >= 0) out.party = cleanParty(lines[hi]);
+  }
   if (!out.party) for (let i = 0; i < lines.length; i++) {
     const m = /^(?:spett(?:\.|abile)?\.?\s*(?:le)?|destinatario|intestatario|cliente|committente|fornitore|ragione sociale|denominazione)\b[\s:.\-]*(.*)$/i.exec(lines[i]);
     if (!m) continue;
-    let v = m[1].trim(); if (!v && lines[i + 1]) v = lines[i + 1];
+    let v = m[1].trim(), vi = i; if (!v && lines[i + 1]) { v = lines[i + 1]; vi = i + 1; }
     v = cleanParty(v);
-    if (v.length >= 3 && !isOwn(v) && !/^(indirizzo|via|data|p\.?iva|codice|partita|n\.)/i.test(v)) { out.party = v; break; }
+    if (v.length >= 3 && !isOwn(v) && !ownLine(vi) && !/^(indirizzo|via|data|p\.?iva|codice|partita|n\.)/i.test(v)) { out.party = v; break; }
   }
   if (!out.party) {
-    const cand = lines.slice(0, 10).filter((l) => l.length >= 3 && l.length <= 60 && !isOwn(l) && !BAD_HEAD.test(l) && (l.replace(/[^\d]/g, "").length / l.length) < 0.4);
+    const cand = lines.slice(0, 10).filter((l, i) => l.length >= 3 && l.length <= 60 && !isOwn(l) && !ownLine(i) && !BAD_HEAD.test(l) && (l.replace(/[^\d]/g, "").length / l.length) < 0.4);
     const co1 = cand.find((l) => COMPANY_RE.test(l)) || cand.find((l) => { const L = l.replace(/[^A-Za-zÀ-ÿ]/g, ""); return L.length >= 4 && L === L.toUpperCase(); }) || cand[0];
     if (co1) out.party = cleanParty(co1);
   }
   return out;
 }
 /* PARSE-END */
+/* ITEMS-START */
+const UNIT_RE = "(?:pz|pezzi|pezzo|nr|n\\.|n°|cf|conf|confezioni|confezione|mt|ml|metri|metro|m|kg|gr|g|lt|l|litri|set|kit|rotoli|rotolo|rt|bobina|bobine|cad|paia|coppia|scatola|scatole|sc)";
+/* righe di merce di una bolla / fattura / scontrino: [{desc, qty, unit}] */
+function parseItems(raw) {
+  const lines = String(raw || "").replace(/\r/g, "").split("\n").map((l) => l.replace(/[ \t]+/g, " ").trim()).filter(Boolean);
+  let from = lines.findIndex((l) => /\b(descrizione|articol[oi]|merce|denominazione)\b/i.test(l) && /\b(q\.?t[aà]?|quantit|u\.?m\.?|prezzo|importo|cod)/i.test(l));
+  from = from >= 0 ? from + 1 : 0;
+  let to = lines.findIndex((l, i) => i >= from && /(causale|trasporto a cura|totale colli|aspetto esteriore|vettore|porto\b|firma|totale imponibile|totale documento|totale fattura|imponibile|totale complessivo|\btotale\b|dati di trasporto|annotazioni)/i.test(l));
+  if (to < 0) to = lines.length;
+  const priceCols = from > 0 && /prezzo|importo|p\.? ?unit/i.test(lines[from - 1]);
+  const BAD = /\b(via|viale|piazza|corso|p\.? ?iva|partita|c\.? ?f\b|\bcap\b|tel|fax|www\.|@|pagina|\bddt\b|documento|fattura|cliente|spett|destinatario|iban|data\b|scadenza|pagamento|banca|rif\.|ordine|n\. ?colli|peso)/i;
+  const num = (s) => parseFloat(String(s).replace(/\./g, "").replace(",", "."));
+  const out = [];
+  for (const l0 of lines.slice(from, to)) {
+    let l = l0;
+    if (!/[A-Za-zÀ-ÿ]{3,}/.test(l) || BAD.test(l)) continue;
+    // tolgo importi con decimali (prezzo/importo) in coda
+    let tail = l, prices = 0, m;
+    const twoAmounts = (l.match(/\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:€|eur)?\s*$/gi) || []).length && (l.match(/\d,\d{2}/g) || []).length >= 2;
+    if (priceCols || (from === 0 && twoAmounts)) while ((m = /\s+(?:€\s*)?\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:€|eur)?\s*$/i.exec(tail)) && prices < 3) { tail = tail.slice(0, m.index); prices++; }
+    l = tail.trim();
+    let qty = null, unit = "", desc = l;
+    let r;
+    if ((r = new RegExp("^(.*?)\\s+(" + UNIT_RE + ")\\.?\\s+(\\d+(?:[.,]\\d+)?)\\s*$", "i").exec(l))) { desc = r[1]; unit = r[2]; qty = num(r[3]); }               // descrizione UM qta
+    else if ((r = new RegExp("^(.*?)\\s+(\\d+(?:[.,]\\d+)?)\\s*(" + UNIT_RE + ")\\.?\\s*$", "i").exec(l))) { desc = r[1]; qty = num(r[2]); unit = r[3]; }     // descrizione qta UM
+    else if ((r = /^(\d+(?:[.,]\d+)?)\s*[xX×]\s+(.+)$/.exec(l))) { qty = num(r[1]); desc = r[2].replace(/\s+\d{1,3}(?:\.\d{3})*,\d{2}\s*(?:€|eur)?\s*$/i, ""); }                                                               // 4 x descrizione
+    else if ((r = new RegExp("^(\\d+(?:[.,]\\d+)?)\\s*(" + UNIT_RE + ")\\.?\\s+(.+)$", "i").exec(l))) { qty = num(r[1]); unit = r[2]; desc = r[3]; }          // 4 pz descrizione
+    else if (prices && (r = /^(.*?)\s+(\d{1,4}(?:,\d{1,3})?)\s*$/.exec(l))) { desc = r[1]; qty = num(r[2]); }                                                       // fattura: descrizione qta prezzo importo
+    else if ((r = /^(.*[A-Za-zÀ-ÿ].*?)\s+(\d{1,4})\s*$/.exec(l)) && from > 0) { desc = r[1]; qty = num(r[2]); }                                                   // sotto intestazione: descrizione qta
+    else if (from === 0) continue;                                                                                                                                      // senza intestazione servono quantita' chiare
+    if (unit && /\d$/.test(desc) && /^(m|mt|ml|g|gr|kg|l|lt)$/i.test(unit)) { desc += " " + unit; unit = ""; }   // "100 m" e' una misura, non l'unita'
+    desc = desc.replace(/\s{2,}/g, " ").replace(/[|:;,\-\s]+$/, "").replace(/^[|:;,\-\s]+/, "").trim();
+    if (desc.length < 3 || !/[A-Za-zÀ-ÿ]{3,}/.test(desc) || (qty != null && (qty <= 0 || qty > 100000))) continue;
+    out.push({ desc: desc.slice(0, 120), qty: qty != null ? qty : null, unit: unit ? unit.toLowerCase().replace(/^(pezzi|pezzo)$/, "pz").replace(/^(metri|metro)$/, "m").replace(/^(confezioni|confezione)$/, "cf") : "" });
+  }
+  return out.slice(0, 60);
+}
+/* ITEMS-END */
+
 
 
 function translate(msg) {
@@ -789,6 +835,8 @@ function docItem(d, showJob) {
     h("div", { class: "row" }, h("div", { style: "min-width:0" }, h("div", { class: "title", style: "margin-top:0;word-break:break-all" }, d.title || d.file_name || "Documento"), h("div", { class: "muted" }, meta)),
       d.kind === "fattura" ? h("span", { class: "badge " + (d.paid ? "b-done" : "b-doing") }, d.paid ? "Pagata" : "Da pagare") : null),
     showJob && d.jobs?.title ? h("div", { class: "muted" }, "Lavoro: " + d.jobs.title) : null,
+    Array.isArray(d.items) && d.items.length ? h("details", { style: "margin-top:8px" }, h("summary", { class: "muted" }, "Contenuto: " + d.items.length + (d.items.length === 1 ? " riga" : " righe")),
+      d.items.map((it) => h("div", { style: "padding:4px 0;border-top:1px solid #EAEDEF" }, (it.qty != null ? it.qty + (it.unit ? " " + it.unit : "") + " × " : "") + it.desc))) : null,
     who ? h("div", { class: "muted" }, who) : null,
     h("div", { class: "btns" },
       h("button", { class: "secondary", onclick: () => openDoc(d) }, "Apri"),
@@ -802,7 +850,7 @@ function docItem(d, showJob) {
 const docYear = (d) => String(d.doc_date || d.created_at || "").slice(0, 4);
 async function docsView() {
   const term = String(S.dq || "").replace(/[,()"\\*%]/g, " ").replace(/\s+/g, " ").trim();
-  let q = sb.from("documents").select("id,kind,title,file_name,file_path,mime,size,amount,doc_date,paid,counterparty,doc_number,created_at,uploaded_by,job_id,jobs(title),profiles(full_name)")
+  let q = sb.from("documents").select("id,kind,title,file_name,file_path,mime,size,amount,doc_date,paid,counterparty,doc_number,created_at,uploaded_by,job_id,items,jobs(title),profiles(full_name)")
     .order("doc_date", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(1000);
   if (term) q = q.or(["file_name", "title", "counterparty", "doc_number", "ocr_text"].map((c) => c + '.ilike."*' + term + '*"').join(","));
   const all = chk(await q);
@@ -964,7 +1012,7 @@ async function docForm(jobId) {
     sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(100).then(chk),
     sb.from("clients").select("id,name").order("name").then(chk)
   ]);
-  const pages = []; let filt = "doc", analyzed = false, ocrText = "", rate = null, issued = false;
+  const pages = []; let filt = "doc", analyzed = false, ocrText = "", rate = null, issued = false, items = [];
   const box = h("div"), say = h("div", { class: "note", style: "display:none" });
   const setSay = (t, err) => { say.style.display = t ? "block" : "none"; say.textContent = t || ""; say.style.borderColor = err ? "#C0392B" : ""; };
   async function addFiles(files) {
@@ -999,6 +1047,26 @@ async function docForm(jobId) {
     const amt = $("da").value; const jt = (jobs.find((j) => j.id === $("dj").value) || {}).title || "";
     return { kind: kindNow(), date: $("dd").value || isoDay(new Date()), party: kindNow() === "foto" ? (jt || $("dp").value.trim()) : $("dp").value.trim(), number: $("dn").value.trim(), amount: amt === "" ? null : num(amt), time: hhmm(new Date()) };
   };
+  const itemsBox = h("div");
+  const ITEM_KINDS = ["bolla", "fattura", "scontrino", "preventivo"];
+  function drawItems() {
+    const k = $("dk") ? $("dk").value : "auto";
+    if (!items.length && k !== "bolla") { itemsBox.replaceChildren(); return; }
+    itemsBox.replaceChildren(h("div", { class: "card" },
+      h("div", { class: "title", style: "margin-top:0" }, "Materiale del documento"),
+      h("p", { class: "muted", style: "margin:0 0 8px" }, items.length ? "Ho letto queste righe. Correggi, togli la spunta a quelle che non servono o aggiungine." : "Nessuna riga letta: puoi scriverle a mano."),
+      items.map((it, i) => h("div", { style: "border-top:1px solid #EAEDEF;padding:8px 0" },
+        h("div", { style: "display:flex;gap:8px;align-items:center" },
+          h("input", { type: "checkbox", checked: it.on, "aria-label": "Includi", style: "width:22px;height:22px;flex:none", onchange: (e) => { it.on = e.target.checked; } }),
+          h("input", { value: it.desc, "aria-label": "Articolo", placeholder: "Articolo", style: "flex:1;min-width:0", oninput: (e) => { it.desc = e.target.value; } })),
+        h("div", { style: "display:flex;gap:8px;align-items:center;margin:6px 0 0 30px" },
+          h("input", { value: it.qty != null ? it.qty : "", "aria-label": "Quantità", inputmode: "decimal", placeholder: "Quantità", style: "flex:1;min-width:0", oninput: (e) => { it.qty = e.target.value === "" ? null : num(e.target.value); } }),
+          h("input", { value: it.unit || "", "aria-label": "Unità", placeholder: "pz, m, kg…", style: "flex:1;min-width:0", oninput: (e) => { it.unit = e.target.value; } }),
+          h("button", { class: "ghost", style: "flex:none;width:40px", "aria-label": "Togli riga", onclick: () => { items.splice(i, 1); drawItems(); } }, "✕")))),
+      h("button", { class: "secondary", style: "width:100%", onclick: () => { items.push({ on: true, desc: "", qty: null, unit: "" }); drawItems(); } }, "+ Aggiungi riga"),
+      h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:12px" }, h("input", { id: "mj", type: "checkbox", checked: true, style: "width:22px;height:22px" }), "Aggiungi alla lista materiali del lavoro"),
+      h("p", { class: "muted", style: "margin:6px 0 0" }, "Serve scegliere il lavoro collegato qui sopra.")));
+  }
   const nameBox = h("div", { class: "note", style: "word-break:break-all" }, "");
   function upName() { if ($("dk")) nameBox.textContent = "Nome file: " + stdName(meta(), fileExt()); }
   const hasSrc = () => pages.length || ($("df") && $("df").files[0]);
@@ -1007,16 +1075,18 @@ async function docForm(jobId) {
     setSay("Leggo il documento… può servire qualche secondo.");
     try {
       ocrText = await readDocument({ pages, file: $("df").files[0] }, (t) => setSay(t));
-      const r = parseDoc(ocrText, { own: { name: co().name }, clients: clients.map((c) => c.name), today: new Date() });
+      const r = parseDoc(ocrText, { own: { name: co().name, vat: co().vat_number }, clients: clients.map((c) => c.name), today: new Date() });
       if ($("dk").value === "auto" || $("dk").value === "altro") $("dk").value = r.kind;
       if (r.party) $("dp").value = r.party;
       if (r.number) $("dn").value = r.number;
       if (r.date) $("dd").value = r.date;
       if (r.amount != null) $("da").value = r.amount;
       rate = r.rate; issued = r.issuedByOwn;
+      items = ITEM_KINDS.includes(r.kind) ? parseItems(ocrText).map((x) => ({ on: true, desc: x.desc, qty: x.qty, unit: x.unit })) : [];
+      drawItems();
       if ($("rgd")) $("rgd").value = issued ? "emessa" : "ricevuta";
       const miss = [!r.party && "cliente/fornitore", !r.number && "numero", !r.date && "data", r.amount == null && "importo"].filter(Boolean);
-      setSay("Fatto: " + KINDS[r.kind] + (r.party ? " · " + r.party : "") + (r.number ? " · N. " + r.number : "") + (r.amount != null ? " · " + money(r.amount) : "") + ". " + (miss.length ? "Non ho trovato: " + miss.join(", ") + ". " : "") + "Controlla i dati qui sotto: la lettura può sbagliare.");
+      setSay("Fatto: " + KINDS[r.kind] + (r.party ? " · " + r.party : "") + (r.number ? " · N. " + r.number : "") + (r.amount != null ? " · " + money(r.amount) : "") + (items.length ? " · " + items.length + (items.length === 1 ? " riga di materiale" : " righe di materiale") : "") + ". " + (miss.length ? "Non ho trovato: " + miss.join(", ") + ". " : "") + "Controlla i dati qui sotto: la lettura può sbagliare.");
       analyzed = true; upName(); return true;
     } catch (e) {
       analyzed = true; setSay((e && e.message ? e.message : "Lettura non riuscita") + " Puoi compilare i dati a mano e caricare lo stesso.", true); return false;
@@ -1040,13 +1110,14 @@ async function docForm(jobId) {
     say,
     h("h2", {}, "Dati del documento"),
     h("label", { for: "dk" }, "Tipo"),
-    h("select", { id: "dk", onchange: upName }, h("option", { value: "auto", selected: true }, "Riconosci da solo"), Object.entries(KINDS).map(([k, l]) => h("option", { value: k }, l))),
+    h("select", { id: "dk", onchange: () => { upName(); drawItems(); } }, h("option", { value: "auto", selected: true }, "Riconosci da solo"), Object.entries(KINDS).map(([k, l]) => h("option", { value: k }, l))),
     h("label", { for: "dp" }, "Cliente / fornitore"), h("input", { id: "dp", list: "dl_dp", oninput: upName, placeholder: "Es. Elettroforniture Rossi" }), h("datalist", { id: "dl_dp" }, clients.map((c) => h("option", { value: c.name }))),
     h("label", { for: "dn" }, "Numero documento"), h("input", { id: "dn", oninput: upName, placeholder: "Es. 1245/2026" }),
     h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: isoDay(new Date()), onchange: upName }),
     h("label", { for: "da" }, "Importo totale in € (facoltativo)"), h("input", { id: "da", type: "number", inputmode: "decimal", step: "0.01", oninput: upName }),
     h("label", { for: "dj" }, "Lavoro collegato"),
     h("select", { id: "dj", onchange: upName }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === jobId }, j.title))),
+    itemsBox,
     nameBox,
     OWNER() ? h("div", { class: "card" },
       h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:0" }, h("input", { id: "rg", type: "checkbox", style: "width:22px;height:22px" }), "Se è una fattura, aggiungila al registro (Ufficio)"),
@@ -1065,9 +1136,16 @@ async function docForm(jobId) {
         const path = S.p.company_id + "/" + crypto.randomUUID() + "." + ext;
         const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
         if (up.error) throw up.error;
-        const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: $("dj").value || null, kind: m.kind, title: name, counterparty: m.party || null, doc_number: m.number || null,
-          amount: m.amount, doc_date: m.date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id, ocr_text: ocrText ? ocrText.slice(0, 20000) : null }).select("id").single();
+        const chosen = items.filter((x) => x.on && String(x.desc).trim()).map((x) => ({ desc: String(x.desc).trim(), qty: x.qty != null && isFinite(x.qty) ? x.qty : null, unit: String(x.unit || "").trim() }));
+        const row = { company_id: S.p.company_id, job_id: $("dj").value || null, kind: m.kind, title: name, counterparty: m.party || null, doc_number: m.number || null,
+          amount: m.amount, doc_date: m.date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id, ocr_text: ocrText ? ocrText.slice(0, 20000) : null };
+        let ins = await sb.from("documents").insert(chosen.length ? { ...row, items: chosen } : row).select("id").single();
+        if (ins.error && chosen.length && /items/i.test(ins.error.message || "")) ins = await sb.from("documents").insert(row).select("id").single();   // database non ancora aggiornato
         if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
+        if (chosen.length && $("mj") && $("mj").checked && $("dj").value) {
+          const mr = await sb.from("job_materials").insert(chosen.map((x) => ({ job_id: $("dj").value, company_id: S.p.company_id, description: x.desc, quantity: x.qty, unit: x.unit || null, added_by: S.p.id })));
+          if (mr.error) alert("Documento salvato, ma non sono riuscito ad aggiungere i materiali al lavoro: " + translate(mr.error.message));
+        }
         if (OWNER() && $("rg") && $("rg").checked && m.kind === "fattura") {
           if (!m.party || !(m.amount > 0)) { alert("Documento salvato, ma per il registro servono cliente/fornitore e importo: aggiungila da Ufficio › Fatture."); return; }
           const rt = vat ? (rate != null ? rate : 22) : 0, total = m.amount, net = r2(total / (1 + rt / 100));
