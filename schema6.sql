@@ -236,3 +236,7 @@ grant execute on function public.clock_out_pos(double precision, double precisio
 drop policy if exists "colleghi vedono colleghi" on public.profiles;
 create policy "colleghi vedono colleghi" on public.profiles for select
   using (company_id = public.my_company() and status = 'active');
+
+-- ---------- permessi di accesso alle tabelle nuove (senza questi: "permission denied") ----------
+grant select, insert, update, delete on public.reports, public.comments, public.posts, public.stock, public.library,
+  public.assets, public.warranties, public.checklists, public.job_checklists, public.leave_requests, public.km_log to authenticated;
