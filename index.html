@@ -1304,7 +1304,9 @@ async function render() {
 function topbar(isSub) {
   if (isSub) return h("div", { class: "top" }, h("button", { class: "ghost", onclick: back }, "← Indietro"));
   return h("div", { class: "top" },
-    h("span", { class: "muted", style: "display:flex;align-items:center;gap:8px" }, logoBox(28), S.p.companies?.name || ""),
+    ["home", "jobs", "cal", "more"].includes(S.tab)
+      ? h("span", { class: "muted", style: "display:flex;align-items:center;gap:8px" }, logoBox(28), S.p.companies?.name || "")
+      : h("button", { class: "ghost", onclick: () => setTab("more") }, "← Menu"),
     h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
