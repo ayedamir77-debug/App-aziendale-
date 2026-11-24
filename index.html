@@ -64,6 +64,9 @@ button:disabled{opacity:.6}
 .big{height:76px;font-size:19px;margin-top:8px}
 .out{background:#A32121;color:#fff}
 .fab{width:100%}
+#rbar{position:fixed;left:0;right:0;bottom:62px;margin:0 auto;max-width:560px;background:#14202B;color:#fff;display:none;align-items:center;padding:4px 10px;z-index:6;border-radius:12px 12px 0 0;font-size:14px}
+#rbar .ghost{color:#fff}
+#offl{position:fixed;top:0;left:0;right:0;background:#E08A00;color:#fff;text-align:center;font-size:13px;padding:4px;z-index:9;display:none}
 hr{border:0;border-top:1px solid #EAEDEF;margin:12px 0}
 </style>
 </head>
@@ -112,7 +115,7 @@ const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 const STATUS = { todo: "Da fare", doing: "In corso", done: "Completato" };
 /* NAME-START */
-const KINDS = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformità", contratto: "Contratto", altro: "Altro" };
+const KINDS = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformità", contratto: "Contratto", firma: "Firma", rapporto: "Rapporto", altro: "Altro" };
 const KIND_FILE = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformita", contratto: "Contratto", altro: "Documento" };
 function slugName(s, max, upper) {
   const w = String(s == null ? "" : s).replace(/([A-Za-z])\./g, "$1").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/&/g, " e ").replace(/[^A-Za-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
@@ -367,6 +370,714 @@ function authScreen(error, info) {
   );
 }
 
+
+/* ================= NUOVE SEZIONI (fase 6) ================= */
+const lk = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const sk = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage non disponibile */ } };
+const who = (id) => (id === S.p.id ? "Tu" : nameOf(id) || "—");
+const dayLabel = (d) => new Date(d + "T12:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" });
+const normT = (s) => String(s || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+const toks = (s) => normT(s).split(/[^a-z0-9]+/).filter((t) => t.length > 2);
+const clean = (s) => String(s || "").replace(/[,()*%\\]/g, " ").trim();
+const cbox = (id, label, checked) => h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:14px" }, h("input", { id, type: "checkbox", checked: !!checked, style: "width:22px;height:22px" }), label);
+const numOrNull = (v) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v));
+const delBtn = (label, fn) => h("button", { class: "danger", onclick: async () => { if (!confirm(label)) return; if (await attempt(fn)) back(); } }, "Elimina");
+async function team0() { await loadTeam(); return S.team.filter((t) => t.status === "active"); }
+const ownerNeeded = () => { if (!OWNER()) throw new Error("Solo il titolare può farlo"); };
+
+/* commenti (rapportini e bacheca) */
+function commentBlock(type, id, list0) {
+  let list = list0.slice();
+  const box = h("div", { style: "margin-top:8px" });
+  const draw = () => {
+    const inp = h("input", { placeholder: "Scrivi un commento…", style: "flex:1" });
+    const send = h("button", { class: "secondary", style: "height:48px", onclick: async () => {
+      const body = inp.value.trim(); if (!body) return;
+      send.disabled = true;
+      try { const r = chk(await sb.from("comments").insert({ company_id: S.p.company_id, user_id: S.p.id, ref_type: type, ref_id: id, body }).select().single()); list.push(r); draw(); } catch (e) { alert(translate(e.message || e)); send.disabled = false; }
+    } }, "Invia");
+    box.replaceChildren(
+      ...list.map((c) => h("div", { style: "padding:8px 0;border-top:1px solid #EAEDEF" },
+        h("div", { class: "muted" }, who(c.user_id) + " · " + fDT(c.created_at)),
+        h("div", { style: "white-space:pre-wrap" }, c.body),
+        (OWNER() || c.user_id === S.p.id) ? h("button", { class: "ghost", style: "color:#A32121;font-size:13px", onclick: async () => { if (await attempt(async () => { chk(await sb.from("comments").delete().eq("id", c.id)); })) { list = list.filter((x) => x.id !== c.id); draw(); } } }, "Elimina") : null)),
+      h("div", { style: "display:flex;gap:8px;margin-top:8px" }, inp, send));
+  };
+  draw();
+  return box;
+}
+async function commentsFor(type, ids) {
+  if (!ids.length) return {};
+  const rows = chk(await sb.from("comments").select("*").eq("ref_type", type).in("ref_id", ids).order("created_at"));
+  const m = {}; for (const r of rows) (m[r.ref_id] = m[r.ref_id] || []).push(r); return m;
+}
+
+/* ---------- hub "Altro" ---------- */
+function moreView() {
+  const tile = (icon, title, sub, fn) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: fn, style: "margin-bottom:10px" },
+    h("div", { class: "row" }, h("div", {}, h("strong", {}, icon + "  " + title), h("div", { class: "muted" }, sub)), h("span", { class: "when" }, "›")));
+  return [
+    h("h1", {}, "Altro"),
+    h("h2", {}, "Lavoro di ogni giorno"),
+    tile("📝", "Rapportini", "Cosa si è fatto oggi, con chi e che materiale", () => go({ t: "reports" })),
+    tile("📣", "Bacheca", "Avvisi e comunicazioni per tutti", () => go({ t: "posts" })),
+    tile("🔔", "Novità", "Cosa è successo dall'ultima volta", () => go({ t: "news" })),
+    tile("🔎", "Cerca ovunque", "Lavori, clienti, documenti, manuali, magazzino", () => go({ t: "search" })),
+    h("h2", {}, "Tecnica e magazzino"),
+    tile("📚", "Biblioteca tecnica", "Schede, manuali e istruzioni da ritrovare", () => go({ t: "library" })),
+    tile("📦", "Magazzino", "Materiale in sede, anche da foto", () => go({ t: "stock" })),
+    tile("🏠", "Schede impianto", "IP, accessi e note di ogni casa", () => go({ t: "assets" })),
+    tile("✅", "Modelli di checklist", "Elenchi da spuntare sul lavoro", () => go({ t: "tpls" })),
+    tile("🛠️", "Garanzie e manutenzioni", "Scadenze per cliente", () => go({ t: "warr" })),
+    h("h2", {}, "Persone e mezzi"),
+    tile("🏖️", "Ferie e permessi", "Richieste e approvazioni", () => go({ t: "leave" })),
+    tile("🚗", "Chilometri", "Km dei veicoli", () => go({ t: "km" })),
+    OWNER() ? tile("👥", "Team", "Richieste di accesso e dipendenti", () => setTab("team")) : null,
+    h("h2", {}, "Svago e impostazioni"),
+    tile("📻", "Radio", "Ascolta mentre lavori", () => go({ t: "radio" })),
+    OWNER() ? tile("🤖", "Assistente IA e impostazioni extra", "IA, costo orario, posizione", () => go({ t: "extra" })) : tile("🤖", "Assistente IA", "Informazioni", () => go({ t: "extra" })),
+    tile("ℹ️", "Info sull'app", "Versione e ultime novità", () => go({ t: "info" }))
+  ];
+}
+
+/* ---------- rapportini ---------- */
+function compareMats(rm, jm) {
+  const jt = jm.map((m) => ({ m, t: new Set(toks(m.description)) }));
+  const find = (d) => {
+    const t = toks(d); if (!t.length) return null; let best = null, bs = 0;
+    for (const x of jt) { let n = 0; for (const a of t) if (x.t.has(a)) n++; const sc = n / t.length; if (sc > bs) { bs = sc; best = x.m; } }
+    return bs >= 0.5 ? best : null;
+  };
+  return rm.map((m) => ({ m, hit: find(m.desc) }));
+}
+async function reportsView() {
+  const since = isoDay(new Date(Date.now() - 45 * 864e5));
+  const list = chk(await sb.from("reports").select("*, jobs(title)").gte("day", since).order("day", { ascending: false }).order("created_at", { ascending: false }).limit(80));
+  await loadTeam();
+  const cm = await commentsFor("report", list.map((r) => r.id));
+  const jobIds = [...new Set(list.map((r) => r.job_id).filter(Boolean))];
+  const jm = jobIds.length ? chk(await sb.from("job_materials").select("job_id,description,quantity,unit").in("job_id", jobIds)) : [];
+  const byDay = {}; for (const r of list) (byDay[r.day] = byDay[r.day] || []).push(r);
+  const card = (r) => {
+    const mats = Array.isArray(r.materials) ? r.materials : [], jobMats = jm.filter((x) => x.job_id === r.job_id);
+    const cmp = compareMats(mats, jobMats);
+    const allRep = list.filter((x) => x.job_id === r.job_id).flatMap((x) => (Array.isArray(x.materials) ? x.materials : []));
+    const unsigned = r.job_id ? jobMats.filter((b) => !compareMats(allRep, [b])[0] || !compareMats(allRep, [b])[0].hit) : [];
+    const mine = r.user_id === S.p.id;
+    return h("div", { class: "card" },
+      h("div", { class: "row" }, h("strong", {}, who(r.user_id)), h("span", { class: "muted" }, r.minutes != null ? dur(r.minutes * 60000) : "")),
+      r.jobs && r.jobs.title ? h("div", { class: "when" }, r.jobs.title) : null,
+      r.with_ids && r.with_ids.length ? h("div", { class: "muted" }, "Insieme a: " + r.with_ids.map(who).join(", ")) : null,
+      r.summary ? h("div", { style: "white-space:pre-wrap;margin:8px 0" }, r.summary) : null,
+      mats.length ? h("div", { style: "margin-top:6px" }, h("div", { class: "muted" }, "Materiale"), cmp.map(({ m, hit }) => {
+        let tag = "";
+        if (m.src === "nostro") tag = "🏭 nostro";
+        else if (hit) { const q = numOrNull(hit.quantity); tag = "✅ in bolla" + (q != null && m.qty != null && q !== Number(m.qty) ? " (in bolla: " + q + ")" : ""); } else tag = "⚠️ comprato, bolla non trovata";
+        return h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, m.desc + (m.qty != null ? " · " + m.qty + " " + (m.unit || "") : "")), h("span", { class: "muted", style: "text-align:right" }, tag));
+      })) : null,
+      unsigned.length ? h("div", { class: "note", style: "margin-top:8px" }, "In bolla ma non segnato nei rapportini: " + unsigned.map((b) => b.description).join(", ")) : null,
+      commentBlock("report", r.id, cm[r.id] || []),
+      mine || OWNER() ? h("div", { class: "btns" }, mine ? h("button", { class: "secondary", onclick: () => go({ t: "reportForm", id: r.id }) }, "Modifica") : null,
+        h("button", { class: "deny", onclick: async () => { if (confirm("Eliminare questo rapportino?") && await attempt(async () => { chk(await sb.from("reports").delete().eq("id", r.id)); })) render(); } }, "Elimina")) : null);
+  };
+  return [
+    h("h1", {}, "Rapportini"),
+    h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "reportForm" }) }, "+ Nuovo rapportino"),
+    h("p", { class: "muted", style: "margin-top:10px" }, "Visibili a tutti. Compilarlo è facoltativo: l'app non manda avvisi a chi non lo fa."),
+    Object.keys(byDay).length ? Object.keys(byDay).map((d) => [h("h2", { style: "text-transform:capitalize" }, dayLabel(d)), byDay[d].map(card)]) : h("p", {}, "Ancora nessun rapportino.")
+  ];
+}
+async function reportForm(sub) {
+  const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
+  const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
+  const pre = rep || draft || {};
+  const [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(120).then(chk), team0()]);
+  const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
+  const withSet = new Set(pre.with_ids || []);
+  const matBox = h("div");
+  const drawMats = () => {
+    matBox.replaceChildren(...mats.map((m, i) => h("div", { class: "card", style: "padding:10px 12px" },
+      h("input", { value: m.desc || "", placeholder: "Materiale (es. cavo 3x1.5)", oninput: (e) => { m.desc = e.target.value; stash(); } }),
+      h("div", { class: "sp", style: "margin-top:8px" },
+        h("input", { type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità", value: m.qty != null ? m.qty : "", oninput: (e) => { m.qty = numOrNull(e.target.value); stash(); } }),
+        h("input", { placeholder: "Unità", value: m.unit || "", oninput: (e) => { m.unit = e.target.value; stash(); } })),
+      h("div", { class: "sp", style: "margin-top:8px" },
+        h("select", { onchange: (e) => { m.src = e.target.value; stash(); } }, [["nostro", "Nostro (magazzino)"], ["comprato", "Comprato"]].map(([k, l]) => h("option", { value: k, selected: (m.src || "nostro") === k }, l))),
+        h("button", { class: "deny", style: "height:48px;flex:0 0 52px", "aria-label": "Rimuovi", onclick: () => { mats.splice(i, 1); drawMats(); stash(); } }, "✕")))));
+  };
+  const stash = () => { if (rep) return; sk("rep_draft", JSON.stringify({ day: $("r_day") && $("r_day").value, job_id: $("r_job") && $("r_job").value, summary: $("r_sum") && $("r_sum").value, with_ids: [...withSet], materials: mats })); };
+  const hoursBox = h("div", { class: "muted" }, "");
+  let minutes = rep ? rep.minutes : null;
+  const calcHours = async () => {
+    const d = $("r_day").value; if (!d) return;
+    const a = new Date(d + "T00:00:00"), b = new Date(a.getTime() + 864e5);
+    const rows = chk(await sb.from("time_entries").select("started_at,ended_at").eq("user_id", S.p.id).gte("started_at", a.toISOString()).lt("started_at", b.toISOString()));
+    const ms = rows.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
+    minutes = rows.length ? Math.round(ms / 60000) : (rep ? rep.minutes : null);
+    hoursBox.textContent = rows.length ? "Ore timbrate quel giorno: " + dur(ms) : "Nessuna timbratura quel giorno.";
+  };
+  setTimeout(() => { drawMats(); calcHours().catch(() => {}); }, 0);
+  return [
+    h("h1", {}, rep ? "Modifica rapportino" : "Rapportino di oggi"),
+    h("label", { for: "r_day" }, "Giorno"), h("input", { id: "r_day", type: "date", value: pre.day || isoDay(new Date()), onchange: () => { calcHours().catch(() => {}); stash(); } }), hoursBox,
+    h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, j.title))),
+    h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "5", placeholder: "Lavori eseguiti, problemi, cose rimaste da fare…", oninput: stash }, pre.summary || ""),
+    h("label", {}, "Con chi eri"),
+    tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
+    h("h2", {}, "Materiale usato"), matBox,
+    h("button", { class: "secondary", style: "width:100%", onclick: () => { mats.push({ desc: "", qty: null, unit: "", src: "nostro" }); drawMats(); } }, "+ Aggiungi materiale"),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const day = $("r_day").value; if (!day) throw new Error("Scegli il giorno");
+        const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro" }));
+        if (!summary && !cm.length) throw new Error("Scrivi cosa hai fatto o il materiale usato");
+        const row = { day, job_id: $("r_job").value || null, summary: summary || null, with_ids: [...withSet], materials: cm, minutes };
+        if (rep) chk(await sb.from("reports").update(row).eq("id", rep.id)); else chk(await sb.from("reports").insert({ ...row, company_id: S.p.company_id, user_id: S.p.id }));
+        sk("rep_draft", "");
+      });
+      if (ok) back(); else e.target.disabled = false;
+    } }, "Salva rapportino")
+  ];
+}
+
+/* ---------- magazzino ---------- */
+async function stockView() {
+  let rows = chk(await sb.from("stock").select("*").order("description"));
+  const list = h("div"), q = h("input", { placeholder: "Cerca nel magazzino…", oninput: () => draw() }), msg = h("p", { class: "muted" });
+  const bump = async (r, d) => { const n = Math.max(0, Number(r.quantity || 0) + d); if (await attempt(async () => { chk(await sb.from("stock").update({ quantity: n, updated_at: new Date().toISOString() }).eq("id", r.id)); })) { r.quantity = n; draw(); } };
+  const draw = () => {
+    const t = normT(q.value), sh = rows.filter((r) => !t || normT([r.code, r.description, r.location, r.note].join(" ")).includes(t));
+    list.replaceChildren(...(sh.length ? sh.map((r) => h("div", { class: "card" },
+      h("div", { class: "row" }, h("div", { class: "tap", style: "flex:1", onclick: () => go({ t: "stockForm", id: r.id }) }, h("strong", {}, r.description), h("div", { class: "muted" }, [r.code, r.location].filter(Boolean).join(" · "))),
+        h("div", { style: "display:flex;align-items:center;gap:6px" }, h("button", { class: "deny", style: "width:40px;padding:0;height:40px", "aria-label": "Meno", onclick: () => bump(r, -1) }, "−"),
+          h("strong", { style: "min-width:44px;text-align:center" }, Number(r.quantity) + (r.unit ? " " + r.unit : "")), h("button", { class: "ok", style: "width:40px;padding:0;height:40px", "aria-label": "Più", onclick: () => bump(r, 1) }, "+"))))) : [h("p", {}, rows.length ? "Nessun risultato." : "Magazzino vuoto: aggiungi un articolo o crealo da foto.")]));
+  };
+  const photo = h("input", { type: "file", accept: "image/*,application/pdf", style: "display:none", onchange: async (e) => {
+    const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+    try {
+      msg.textContent = "Leggo la foto…";
+      const text = await readDocument({ file: f }, (t) => { msg.textContent = t; });
+      const items = parseItems(text);
+      msg.textContent = "";
+      if (!items.length) { alert("Non ho trovato righe leggibili. Prova con una foto più vicina e nitida, oppure aggiungi a mano."); return; }
+      S.draft.stockItems = items; go({ t: "stockImport" });
+    } catch (er) { msg.textContent = ""; alert("Lettura non riuscita: " + translate(er.message || er)); }
+  } });
+  setTimeout(draw, 0);
+  return [
+    h("h1", {}, "Magazzino"),
+    h("div", { class: "btns", style: "margin-top:0" }, h("button", { class: "ok", onclick: () => go({ t: "stockForm" }) }, "+ Articolo"), h("button", { class: "secondary", onclick: () => photo.click() }, "📷 Crea da foto")),
+    msg, photo, h("div", { style: "margin-top:10px" }, q), h("div", { style: "margin-top:12px" }, list),
+    h("p", { class: "muted" }, "Dalla foto leggo le scritte (codice, nome, quantità se scritta). Le quantità vanno sempre controllate: contare a occhio dalla foto non è affidabile.")
+  ];
+}
+function stockImport() {
+  const items = (S.draft.stockItems || []).map((x) => ({ ...x, on: true })), box = h("div");
+  const draw = () => box.replaceChildren(...items.map((it, i) => h("div", { class: "card", style: "padding:10px 12px" },
+    h("div", { style: "display:flex;gap:10px;align-items:center" }, h("input", { type: "checkbox", checked: it.on, style: "width:22px;height:22px;flex:0 0 22px", onchange: (e) => { it.on = e.target.checked; } }),
+      h("input", { value: it.desc || "", oninput: (e) => { it.desc = e.target.value; } })),
+    h("div", { class: "sp", style: "margin-top:8px" }, h("input", { type: "number", inputmode: "decimal", step: "any", value: it.qty != null ? it.qty : "", placeholder: "Quantità", oninput: (e) => { it.qty = numOrNull(e.target.value); } }), h("input", { value: it.unit || "", placeholder: "Unità", oninput: (e) => { it.unit = e.target.value; } })))));
+  setTimeout(draw, 0);
+  return [h("h1", {}, "Controlla le righe"), h("p", {}, "Togli la spunta a quelle sbagliate e correggi quantità e nomi."), box,
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const rows = items.filter((x) => x.on && (x.desc || "").trim()).map((x) => ({ company_id: S.p.company_id, description: x.desc.trim(), quantity: x.qty != null ? x.qty : 0, unit: (x.unit || "").trim() || null }));
+      if (!rows.length) throw new Error("Nessuna riga selezionata");
+      chk(await sb.from("stock").insert(rows)); S.draft.stockItems = null; });
+      if (ok) back(); else e.target.disabled = false; } }, "Aggiungi al magazzino")];
+}
+async function stockForm(sub) {
+  const r = sub.id ? chk(await sb.from("stock").select("*").eq("id", sub.id).single()) : {};
+  return [h("h1", {}, sub.id ? "Articolo" : "Nuovo articolo"),
+    h("label", { for: "k_d" }, "Descrizione"), h("input", { id: "k_d", value: r.description || "" }),
+    h("label", { for: "k_c" }, "Codice"), h("input", { id: "k_c", value: r.code || "" }),
+    h("div", { class: "sp" }, h("div", {}, h("label", { for: "k_q" }, "Quantità"), h("input", { id: "k_q", type: "number", inputmode: "decimal", step: "any", value: r.quantity != null ? r.quantity : "" })), h("div", {}, h("label", { for: "k_u" }, "Unità"), h("input", { id: "k_u", value: r.unit || "", placeholder: "pz, m…" }))),
+    h("label", { for: "k_l" }, "Dove si trova"), h("input", { id: "k_l", value: r.location || "", placeholder: "Scaffale, furgone…" }),
+    h("label", { for: "k_n" }, "Note"), h("textarea", { id: "k_n", rows: "2" }, r.note || ""),
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const description = $("k_d").value.trim(); if (!description) throw new Error("Scrivi la descrizione");
+      const row = { description, code: $("k_c").value.trim() || null, quantity: numOrNull($("k_q").value) || 0, unit: $("k_u").value.trim() || null, location: $("k_l").value.trim() || null, note: $("k_n").value.trim() || null, updated_at: new Date().toISOString() };
+      if (sub.id) chk(await sb.from("stock").update(row).eq("id", sub.id)); else chk(await sb.from("stock").insert({ ...row, company_id: S.p.company_id })); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva"),
+    sub.id ? delBtn("Eliminare questo articolo?", async () => { chk(await sb.from("stock").delete().eq("id", sub.id)); }) : null];
+}
+
+/* ---------- biblioteca tecnica ---------- */
+const LIB_CATS = ["Centraline", "Orologi e timer", "Termostati", "Moduli e relè", "Router e rete", "Telecamere", "Sensori", "Altro"];
+async function libraryView() {
+  let cat = S.libCat || "all", q = S.libQ || "", favOnly = !!S.libFav;
+  const list = h("div"), inp = h("input", { placeholder: "Cerca marca, modello o una parola dentro il manuale…", value: q });
+  const load = async () => {
+    let qq = sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name,fav,created_at").order("category").order("title");
+    if (cat !== "all") qq = qq.eq("category", cat);
+    if (favOnly) qq = qq.eq("fav", true);
+    const t = clean(q);
+    if (t) qq = qq.or(["title", "brand", "model", "note", "ocr_text", "category"].map((c) => c + ".ilike.*" + t + "*").join(","));
+    const rows = chk(await qq.limit(80));
+    list.replaceChildren(...(rows.length ? rows.map((r) => h("div", { class: "card" },
+      h("div", { class: "row" }, h("div", { class: "tap", style: "flex:1", onclick: () => go({ t: "libForm", id: r.id }) }, h("strong", {}, r.title), h("div", { class: "muted" }, [r.category, r.brand, r.model].filter(Boolean).join(" · "))),
+        h("button", { class: "ghost", style: "font-size:22px", "aria-label": "Preferito", onclick: async () => { if (await attempt(async () => { chk(await sb.from("library").update({ fav: !r.fav }).eq("id", r.id)); })) load().catch(() => {}); } }, r.fav ? "★" : "☆")),
+      r.note ? h("div", { class: "muted", style: "white-space:pre-wrap;margin-top:4px" }, r.note.slice(0, 160)) : null,
+      h("div", {}, r.file_path ? h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); openDoc({ file_path: r.file_path }); } }, "📄 Apri file") : null,
+        r.url ? h("a", { class: "link", href: r.url, target: "_blank", rel: "noopener" }, "🔗 Link") : null))) : [h("p", {}, "Niente trovato.")]));
+  };
+  inp.addEventListener("input", () => { q = inp.value; S.libQ = q; clearTimeout(inp._t); inp._t = setTimeout(() => load().catch(() => {}), 300); });
+  const chips = h("div", { class: "chips" });
+  const drawChips = () => chips.replaceChildren(...[["all", "Tutte"], ...LIB_CATS.map((c) => [c, c])].map(([k, l]) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { cat = k; S.libCat = k; drawChips(); load().catch(() => {}); } }, l)),
+    h("button", { class: "chip" + (favOnly ? " on" : ""), onclick: () => { favOnly = !favOnly; S.libFav = favOnly; drawChips(); load().catch(() => {}); } }, "★ Preferiti"));
+  drawChips(); setTimeout(() => load().catch(() => {}), 0);
+  return [h("h1", {}, "Biblioteca tecnica"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "libForm" }) }, "+ Aggiungi scheda o manuale"), h("div", { style: "margin-top:12px" }, inp), chips, list];
+}
+async function libForm(sub) {
+  const r = sub.id ? chk(await sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name").eq("id", sub.id).single()) : {};
+  const say = h("p", { class: "muted" });
+  return [h("h1", {}, sub.id ? "Scheda" : "Nuova scheda"),
+    h("label", { for: "l_c" }, "Categoria"), h("input", { id: "l_c", value: r.category || "Centraline", list: "dl_lc" }), h("datalist", { id: "dl_lc" }, LIB_CATS.map((c) => h("option", { value: c }))),
+    h("div", { class: "sp" }, h("div", {}, h("label", { for: "l_b" }, "Marca"), h("input", { id: "l_b", value: r.brand || "" })), h("div", {}, h("label", { for: "l_m" }, "Modello"), h("input", { id: "l_m", value: r.model || "" }))),
+    h("label", { for: "l_t" }, "Titolo"), h("input", { id: "l_t", value: r.title || "", placeholder: "Es. Istruzioni programmazione" }),
+    h("label", { for: "l_n" }, "Note tue (trucchi, errori comuni…)"), h("textarea", { id: "l_n", rows: "4" }, r.note || ""),
+    h("label", { for: "l_u" }, "Link (video o pagina del produttore)"), h("input", { id: "l_u", type: "url", value: r.url || "", placeholder: "https://…" }),
+    h("label", { for: "l_f" }, r.file_path ? "Sostituisci il file (PDF o foto)" : "File (PDF o foto)"), h("input", { id: "l_f", type: "file", accept: "application/pdf,image/*", style: "height:auto;padding:12px" }),
+    cbox("l_ocr", "Leggi il testo per poterlo cercare", true), say,
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const title = $("l_t").value.trim(); if (!title) throw new Error("Scrivi il titolo");
+      const row = { category: $("l_c").value.trim() || "Altro", brand: $("l_b").value.trim() || null, model: $("l_m").value.trim() || null, title, note: $("l_n").value.trim() || null, url: $("l_u").value.trim() || null };
+      const f = $("l_f").files[0];
+      if (f) {
+        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB)");
+        const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
+        const path = S.p.company_id + "/lib/" + crypto.randomUUID() + "." + ext;
+        say.textContent = "Carico il file…";
+        const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" }); if (up.error) throw up.error;
+        row.file_path = path; row.file_name = f.name;
+        if ($("l_ocr").checked) { try { row.ocr_text = (await readDocument({ file: f }, (t) => { say.textContent = t; })).slice(0, 80000); } catch { /* il file resta, senza testo cercabile */ } }
+        if (r.file_path) await sb.storage.from("docs").remove([r.file_path]);
+      }
+      if (sub.id) chk(await sb.from("library").update(row).eq("id", sub.id)); else chk(await sb.from("library").insert({ ...row, company_id: S.p.company_id })); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva"),
+    sub.id ? delBtn("Eliminare questa scheda e il suo file?", async () => { if (r.file_path) await sb.storage.from("docs").remove([r.file_path]); chk(await sb.from("library").delete().eq("id", sub.id)); }) : null];
+}
+
+/* ---------- schede impianto ---------- */
+async function assetsView() {
+  const rows = chk(await sb.from("assets").select("*, clients(name)").order("title"));
+  const q = h("input", { placeholder: "Cerca impianto o cliente…" }), list = h("div");
+  const draw = () => { const t = normT(q.value), sh = rows.filter((a) => !t || normT([a.title, a.notes, a.address_url, a.clients && a.clients.name].join(" ")).includes(t));
+    list.replaceChildren(...(sh.length ? sh.map((a) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "assetForm", id: a.id }) }, h("strong", {}, a.title), h("div", { class: "muted" }, a.clients ? a.clients.name : "Senza cliente"), a.address_url ? h("div", { class: "muted" }, a.address_url) : null)) : [h("p", {}, "Nessuna scheda.")])); };
+  q.addEventListener("input", draw); setTimeout(draw, 0);
+  return [h("h1", {}, "Schede impianto"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "assetForm" }) }, "+ Nuova scheda"), h("div", { style: "margin-top:12px" }, q), h("div", { style: "margin-top:12px" }, list)];
+}
+async function assetForm(sub) {
+  const [a, clients] = await Promise.all([sub.id ? sb.from("assets").select("*").eq("id", sub.id).single().then(chk) : Promise.resolve({}), sb.from("clients").select("id,name").order("name").then(chk)]);
+  const sec = h("input", { id: "a_s", type: "password", value: a.secret || "", autocomplete: "off" });
+  return [h("h1", {}, sub.id ? "Scheda impianto" : "Nuova scheda impianto"),
+    h("div", { class: "note", style: "margin-top:0" }, "Attenzione: tutto quello che scrivi qui è visibile a tutti i colleghi dell'azienda."),
+    h("label", { for: "a_t" }, "Nome impianto"), h("input", { id: "a_t", value: a.title || "", placeholder: "Es. Villa Rossi – Home Assistant" }),
+    h("label", { for: "a_c" }, "Cliente"), h("select", { id: "a_c" }, h("option", { value: "" }, "— nessuno —"), clients.map((c) => h("option", { value: c.id, selected: a.client_id === c.id }, c.name))),
+    h("label", { for: "a_u" }, "Indirizzo / IP / link di accesso"), h("input", { id: "a_u", value: a.address_url || "", placeholder: "http://192.168.1.10:8123" }),
+    h("label", { for: "a_n" }, "Utente"), h("input", { id: "a_n", value: a.username || "", autocomplete: "off" }),
+    h("label", { for: "a_s" }, "Password"), sec, h("button", { class: "ghost", onclick: (e) => { sec.type = sec.type === "password" ? "text" : "password"; e.target.textContent = sec.type === "password" ? "Mostra password" : "Nascondi password"; } }, "Mostra password"),
+    h("label", { for: "a_o" }, "Note (dispositivi, configurazione, cose da ricordare)"), h("textarea", { id: "a_o", rows: "6" }, a.notes || ""),
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const title = $("a_t").value.trim(); if (!title) throw new Error("Scrivi il nome dell'impianto");
+      const row = { title, client_id: $("a_c").value || null, address_url: $("a_u").value.trim() || null, username: $("a_n").value.trim() || null, secret: $("a_s").value || null, notes: $("a_o").value.trim() || null };
+      if (sub.id) chk(await sb.from("assets").update(row).eq("id", sub.id)); else chk(await sb.from("assets").insert({ ...row, company_id: S.p.company_id })); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva"),
+    sub.id ? delBtn("Eliminare questa scheda?", async () => { chk(await sb.from("assets").delete().eq("id", sub.id)); }) : null];
+}
+
+/* ---------- garanzie e manutenzioni ---------- */
+async function warrView() {
+  const rows = chk(await sb.from("warranties").select("*, clients(name)").order("due_date"));
+  const today = isoDay(new Date()), open = rows.filter((w) => !w.done), done = rows.filter((w) => w.done);
+  const card = (w) => { const late = !w.done && w.due_date < today, days = Math.round((new Date(w.due_date + "T12:00") - new Date(today + "T12:00")) / 864e5);
+    return h("div", { class: "card tap", role: "button", tabindex: "0", style: late ? "border-color:#E08A00" : "", onclick: () => go({ t: "warrForm", id: w.id }) },
+      h("div", { class: "row" }, h("strong", {}, (w.kind === "garanzia" ? "🛡️ " : "🛠️ ") + w.title), h("span", { class: "when" }, late ? "Scaduta" : days === 0 ? "Oggi" : "tra " + days + " g")),
+      h("div", { class: "muted" }, new Date(w.due_date + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" }) + (w.clients ? " · " + w.clients.name : ""))); };
+  return [h("h1", {}, "Garanzie e manutenzioni"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "warrForm" }) }, "+ Nuova scadenza"),
+    h("h2", {}, "Da fare"), open.length ? open.map(card) : h("p", {}, "Nessuna scadenza."),
+    done.length ? [h("h2", {}, "Completate"), done.slice(-10).reverse().map(card)] : null];
+}
+async function warrForm(sub) {
+  const [w, clients] = await Promise.all([sub.id ? sb.from("warranties").select("*").eq("id", sub.id).single().then(chk) : Promise.resolve({}), sb.from("clients").select("id,name").order("name").then(chk)]);
+  return [h("h1", {}, sub.id ? "Scadenza" : "Nuova scadenza"),
+    h("label", { for: "w_k" }, "Tipo"), h("select", { id: "w_k" }, [["manutenzione", "Manutenzione"], ["garanzia", "Garanzia"]].map(([k, l]) => h("option", { value: k, selected: (w.kind || "manutenzione") === k }, l))),
+    h("label", { for: "w_t" }, "Cosa"), h("input", { id: "w_t", value: w.title || "", placeholder: "Es. Controllo impianto allarme" }),
+    h("label", { for: "w_c" }, "Cliente"), h("select", { id: "w_c" }, h("option", { value: "" }, "— nessuno —"), clients.map((c) => h("option", { value: c.id, selected: w.client_id === c.id }, c.name))),
+    h("label", { for: "w_d" }, "Scadenza"), h("input", { id: "w_d", type: "date", value: w.due_date || "" }),
+    h("label", { for: "w_n" }, "Note"), h("textarea", { id: "w_n", rows: "3" }, w.notes || ""),
+    cbox("w_x", "Fatta / completata", w.done),
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const title = $("w_t").value.trim(), due = $("w_d").value; if (!title) throw new Error("Scrivi cosa"); if (!due) throw new Error("Scegli la scadenza");
+      const row = { kind: $("w_k").value, title, client_id: $("w_c").value || null, due_date: due, notes: $("w_n").value.trim() || null, done: $("w_x").checked };
+      if (sub.id) chk(await sb.from("warranties").update(row).eq("id", sub.id)); else chk(await sb.from("warranties").insert({ ...row, company_id: S.p.company_id })); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva"),
+    sub.id ? delBtn("Eliminare questa scadenza?", async () => { chk(await sb.from("warranties").delete().eq("id", sub.id)); }) : null];
+}
+
+/* ---------- bacheca ---------- */
+async function postsView() {
+  const rows = chk(await sb.from("posts").select("*").order("created_at", { ascending: false }).limit(50));
+  await loadTeam();
+  const cm = await commentsFor("post", rows.map((p) => p.id));
+  const ta = h("textarea", { rows: "3", placeholder: "Scrivi un avviso per tutti…" });
+  return [h("h1", {}, "Bacheca"), ta,
+    h("button", { class: "primary", style: "margin-top:10px", onclick: async (e) => { const body = ta.value.trim(); if (!body) return; e.target.disabled = true; if (await attempt(async () => { chk(await sb.from("posts").insert({ company_id: S.p.company_id, user_id: S.p.id, body })); })) render(); else e.target.disabled = false; } }, "Pubblica"),
+    h("h2", {}, "Avvisi"),
+    rows.length ? rows.map((p) => h("div", { class: "card" }, h("div", { class: "muted" }, who(p.user_id) + " · " + fDT(p.created_at)), h("div", { style: "white-space:pre-wrap;margin:6px 0" }, p.body),
+      commentBlock("post", p.id, cm[p.id] || []),
+      (OWNER() || p.user_id === S.p.id) ? h("button", { class: "ghost", style: "color:#A32121", onclick: async () => { if (confirm("Eliminare l'avviso?") && await attempt(async () => { chk(await sb.from("posts").delete().eq("id", p.id)); })) render(); } }, "Elimina avviso") : null)) : h("p", {}, "Nessun avviso.")];
+}
+
+/* ---------- ferie e permessi ---------- */
+async function leaveView() {
+  const rows = chk(await sb.from("leave_requests").select("*").order("from_date", { ascending: false }).limit(60));
+  await loadTeam();
+  const L = { richiesta: "In attesa", ok: "Approvata", no: "Rifiutata" }, decide = async (r, st) => { if (await attempt(async () => { chk(await sb.from("leave_requests").update({ status: st }).eq("id", r.id)); })) render(); };
+  const fd = (d) => new Date(d + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" });
+  return [h("h1", {}, "Ferie e permessi"),
+    h("div", { class: "card" },
+      h("label", { for: "f_k", style: "margin-top:0" }, "Tipo"), h("select", { id: "f_k" }, ["Ferie", "Permesso", "Malattia"].map((k) => h("option", { value: k }, k))),
+      h("div", { class: "sp" }, h("div", {}, h("label", { for: "f_a" }, "Dal"), h("input", { id: "f_a", type: "date", value: isoDay(new Date()) })), h("div", {}, h("label", { for: "f_b" }, "Al"), h("input", { id: "f_b", type: "date", value: isoDay(new Date()) }))),
+      h("label", { for: "f_n" }, "Note"), h("input", { id: "f_n" }),
+      h("button", { class: "primary", style: "margin-top:12px", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+        const a = $("f_a").value, b = $("f_b").value; if (!a || !b || b < a) throw new Error("Controlla le date");
+        chk(await sb.from("leave_requests").insert({ company_id: S.p.company_id, user_id: S.p.id, kind: $("f_k").value, from_date: a, to_date: b, note: $("f_n").value.trim() || null })); });
+        if (ok) render(); else e.target.disabled = false; } }, "Invia richiesta")),
+    h("h2", {}, "Richieste"),
+    rows.length ? rows.map((r0) => { const r = { ...r0, status: r0.status || "richiesta" }; return h("div", { class: "card" },
+      h("div", { class: "row" }, h("strong", {}, who(r.user_id)), h("span", { class: "badge b-" + (r.status === "ok" ? "done" : r.status === "no" ? "todo" : "doing") }, L[r.status])),
+      h("div", {}, r.kind + " · " + fd(r.from_date) + (r.to_date !== r.from_date ? " → " + fd(r.to_date) : "")), r.note ? h("div", { class: "muted" }, r.note) : null,
+      OWNER() && r.status === "richiesta" ? h("div", { class: "btns" }, h("button", { class: "deny", onclick: () => decide(r, "no") }, "Rifiuta"), h("button", { class: "ok", onclick: () => decide(r, "ok") }, "Approva")) : null,
+      (OWNER() || (r.user_id === S.p.id && r.status === "richiesta")) ? h("button", { class: "ghost", style: "color:#A32121", onclick: async () => { if (confirm("Eliminare la richiesta?") && await attempt(async () => { chk(await sb.from("leave_requests").delete().eq("id", r.id)); })) render(); } }, "Elimina") : null); }) : h("p", {}, "Nessuna richiesta.")];
+}
+
+/* ---------- chilometri ---------- */
+async function kmView() {
+  const rows = chk(await sb.from("km_log").select("*").order("day", { ascending: false }).limit(120));
+  await loadTeam();
+  const ms = isoDay(monthStart()), tot = rows.filter((r) => r.day >= ms && r.km_end != null && r.km_start != null).reduce((s, r) => s + (Number(r.km_end) - Number(r.km_start)), 0);
+  const csv = () => { const lines = [["Data", "Chi", "Veicolo", "Km iniziali", "Km finali", "Km percorsi", "Note"]].concat(rows.map((r) => [r.day, who(r.user_id), r.vehicle || "", r.km_start ?? "", r.km_end ?? "", r.km_start != null && r.km_end != null ? Number(r.km_end) - Number(r.km_start) : "", (r.note || "").replace(/[\r\n;]+/g, " ")]));
+    const b = new Blob(["﻿" + lines.map((l) => l.join(";")).join("\r\n")], { type: "text/csv" }), a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "chilometri.csv"; a.click(); };
+  return [h("h1", {}, "Chilometri"),
+    h("div", { class: "card" },
+      h("label", { for: "m_d", style: "margin-top:0" }, "Giorno"), h("input", { id: "m_d", type: "date", value: isoDay(new Date()) }),
+      h("label", { for: "m_v" }, "Veicolo"), h("input", { id: "m_v", value: lk("last_vehicle") || "", placeholder: "Targa o nome" }),
+      h("div", { class: "sp" }, h("div", {}, h("label", { for: "m_a" }, "Km iniziali"), h("input", { id: "m_a", type: "number", inputmode: "decimal", step: "any" })), h("div", {}, h("label", { for: "m_b" }, "Km finali"), h("input", { id: "m_b", type: "number", inputmode: "decimal", step: "any" }))),
+      h("label", { for: "m_n" }, "Note"), h("input", { id: "m_n", placeholder: "Es. cantiere Rossi" }),
+      h("button", { class: "primary", style: "margin-top:12px", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+        const a = numOrNull($("m_a").value), b = numOrNull($("m_b").value); if (a == null && b == null) throw new Error("Scrivi almeno un valore"); if (a != null && b != null && b < a) throw new Error("I km finali sono minori degli iniziali");
+        sk("last_vehicle", $("m_v").value.trim()); chk(await sb.from("km_log").insert({ company_id: S.p.company_id, user_id: S.p.id, day: $("m_d").value, vehicle: $("m_v").value.trim() || null, km_start: a, km_end: b, note: $("m_n").value.trim() || null })); });
+        if (ok) render(); else e.target.disabled = false; } }, "Salva")),
+    h("h2", {}, "Questo mese: " + Math.round(tot) + " km"), OWNER() ? h("button", { class: "ghost", onclick: csv }, "⬇️ Scarica CSV") : null,
+    rows.length ? h("div", { class: "card" }, rows.map((r, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
+      h("div", {}, h("div", {}, new Date(r.day + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" }) + (OWNER() ? " · " + who(r.user_id) : "")), h("div", { class: "muted" }, [r.vehicle, r.note].filter(Boolean).join(" · "))),
+      h("div", { style: "text-align:right" }, h("strong", {}, r.km_start != null && r.km_end != null ? Math.round(Number(r.km_end) - Number(r.km_start)) + " km" : "—"),
+        h("button", { class: "ghost", style: "color:#A32121;display:block;margin-left:auto;font-size:13px", onclick: async () => { if (confirm("Eliminare la riga?") && await attempt(async () => { chk(await sb.from("km_log").delete().eq("id", r.id)); })) render(); } }, "Elimina"))))) : h("p", {}, "Nessuna riga.")];
+}
+
+/* ---------- checklist ---------- */
+const BUILTIN_TPL = [
+  { name: "Collaudo impianto domotico", items: ["Alimentazioni e quadro verificati", "Rete e indirizzi IP assegnati", "Dispositivi associati in Home Assistant", "Scenari e automazioni provati", "Accesso remoto e backup configurati", "Cliente istruito sull'uso", "Documentazione e accessi consegnati"] },
+  { name: "Videosorveglianza", items: ["Telecamere posizionate e inquadrature verificate", "Registratore/NVR configurato", "Registrazioni e riproduzione provate", "Accesso da telefono del cliente", "Password cambiate e consegnate"] },
+  { name: "Antifurto", items: ["Centrale e alimentazione verificate", "Sensori provati uno per uno", "Sirene e comunicatore provati", "Codici e utenti configurati", "Cliente istruito sull'uso"] },
+  { name: "Impianto elettrico base", items: ["Differenziali e magnetotermici provati", "Messa a terra verificata", "Prese e punti luce provati", "Dichiarazione di conformità compilata"] }
+];
+async function jobChecklists(j) {
+  const [rows, custom] = await Promise.all([sb.from("job_checklists").select("*").eq("job_id", j.id).order("created_at").then(chk), sb.from("checklists").select("*").order("name").then(chk)]);
+  const tpls = [...BUILTIN_TPL, ...custom.map((c) => ({ name: c.name, items: Array.isArray(c.items) ? c.items : [] }))];
+  const sel = h("select", {}, h("option", { value: "" }, "Aggiungi una checklist…"), tpls.map((t, i) => h("option", { value: i }, t.name)));
+  sel.addEventListener("change", async () => { if (sel.value === "") return; const t = tpls[Number(sel.value)]; if (await attempt(async () => { chk(await sb.from("job_checklists").insert({ company_id: j.company_id, job_id: j.id, name: t.name, items: t.items.map((x) => ({ t: x, d: false })) })); })) render(); });
+  return [h("h2", {}, "Checklist"),
+    rows.map((c) => { const items = Array.isArray(c.items) ? c.items : [], n = items.filter((x) => x.d).length;
+      return h("div", { class: "card" }, h("div", { class: "row" }, h("strong", {}, c.name), h("span", { class: "muted" }, n + "/" + items.length)),
+        items.map((it, i) => h("label", { style: "display:flex;gap:12px;align-items:center;margin:8px 0;font-weight:500;font-size:15px" },
+          h("input", { type: "checkbox", checked: !!it.d, style: "width:22px;height:22px;flex:0 0 22px", onchange: async (e) => { items[i].d = e.target.checked; await attempt(async () => { chk(await sb.from("job_checklists").update({ items }).eq("id", c.id)); }); } }), it.t)),
+        h("button", { class: "ghost", style: "color:#A32121;font-size:13px", onclick: async () => { if (confirm("Eliminare la checklist?") && await attempt(async () => { chk(await sb.from("job_checklists").delete().eq("id", c.id)); })) render(); } }, "Elimina checklist")); }),
+    sel];
+}
+async function tplsView() {
+  const custom = chk(await sb.from("checklists").select("*").order("name"));
+  return [h("h1", {}, "Modelli di checklist"), h("p", {}, "Poi li aggiungi da dentro un lavoro. Quelli già pronti: " + BUILTIN_TPL.map((t) => t.name).join(", ") + "."),
+    h("div", { class: "card" }, h("label", { for: "c_n", style: "margin-top:0" }, "Nome del nuovo modello"), h("input", { id: "c_n" }),
+      h("label", { for: "c_i" }, "Voci (una per riga)"), h("textarea", { id: "c_i", rows: "6" }),
+      h("button", { class: "primary", style: "margin-top:12px", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+        const name = $("c_n").value.trim(), items = $("c_i").value.split("\n").map((x) => x.trim()).filter(Boolean); if (!name || !items.length) throw new Error("Scrivi nome e almeno una voce");
+        chk(await sb.from("checklists").insert({ company_id: S.p.company_id, name, items })); }); if (ok) render(); else e.target.disabled = false; } }, "Salva modello")),
+    h("h2", {}, "I tuoi modelli"),
+    custom.length ? custom.map((c) => h("div", { class: "card" }, h("strong", {}, c.name), h("div", { class: "muted" }, (c.items || []).join(" · ")),
+      h("button", { class: "ghost", style: "color:#A32121", onclick: async () => { if (confirm("Eliminare il modello?") && await attempt(async () => { chk(await sb.from("checklists").delete().eq("id", c.id)); })) render(); } }, "Elimina"))) : h("p", {}, "Nessun modello tuo.")];
+}
+
+/* ---------- costo e guadagno del lavoro (titolare) ---------- */
+async function jobCostCard(j, docs) {
+  const [te, inv] = await Promise.all([sb.from("time_entries").select("started_at,ended_at").eq("job_id", j.id).then(chk), sb.from("invoices").select("total,direction").eq("job_id", j.id).eq("direction", "emessa").then(chk)]);
+  const ms = te.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0), rate = Number(co().hourly_cost) || 0;
+  const labor = r2(ms / 3600000 * rate), mat = r2(docs.filter((d) => ["fattura", "scontrino"].includes(d.kind) && d.amount != null).reduce((s, d) => s + Number(d.amount), 0)), rev = r2(inv.reduce((s, i) => s + Number(i.total), 0)), cost = r2(labor + mat);
+  const line = (l, v, b) => h("div", { class: "row", style: "padding:3px 0" }, h("span", { class: b ? "" : "muted" }, l), b ? h("strong", {}, v) : h("span", {}, v));
+  return [h("h2", {}, "Costo e guadagno"), h("div", { class: "card" },
+    line("Ore lavorate", dur(ms)), line("Costo manodopera" + (rate ? "" : " (imposta il costo orario in Altro › Assistente IA e impostazioni)"), money(labor)),
+    line("Spese documentate (fatture e scontrini)", money(mat)), line("Costo totale", money(cost), true), line("Fatturato al cliente", money(rev)), line("Margine", money(r2(rev - cost)), true),
+    h("p", { class: "muted", style: "margin:8px 0 0" }, "Le fatture emesse si collegano al lavoro dalla scheda fattura."))];
+}
+
+/* ---------- firma cliente e rapporto PDF ---------- */
+async function signoffView(sub) {
+  const j = chk(await sb.from("jobs").select("*, clients(*)").eq("id", sub.job).single()), mats = chk(await sb.from("job_materials").select("*").eq("job_id", j.id).order("created_at"));
+  const te = chk(await sb.from("time_entries").select("started_at,ended_at").eq("job_id", j.id)), ms = te.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
+  const cv = h("canvas", { width: "600", height: "260", style: "width:100%;height:auto;background:#fff;border:1px solid #C9D0D6;border-radius:10px;touch-action:none" });
+  const g = cv.getContext("2d"); g.lineWidth = 3; g.lineCap = "round"; g.strokeStyle = "#14202B"; let drawing = false, signed = false;
+  const pt = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
+  cv.addEventListener("pointerdown", (e) => { drawing = true; signed = true; cv.setPointerCapture(e.pointerId); const [x, y] = pt(e); g.beginPath(); g.moveTo(x, y); e.preventDefault(); });
+  cv.addEventListener("pointermove", (e) => { if (!drawing) return; const [x, y] = pt(e); g.lineTo(x, y); g.stroke(); });
+  const stop = () => { drawing = false; }; cv.addEventListener("pointerup", stop); cv.addEventListener("pointercancel", stop);
+  const say = h("p", { class: "muted" });
+  return [h("h1", {}, "Rapporto e firma"), h("p", { class: "muted" }, j.title + (j.clients ? " · " + j.clients.name : "")),
+    h("label", { for: "s_w", style: "margin-top:0" }, "Lavori eseguiti"), h("textarea", { id: "s_w", rows: "5" }, j.field_notes || j.description || ""),
+    h("p", { class: "muted" }, "Materiale: " + (mats.length ? mats.map((m) => m.description + (m.quantity != null ? " (" + Number(m.quantity) + (m.unit ? " " + m.unit : "") + ")" : "")).join(", ") : "—") + (ms ? " · Ore: " + dur(ms) : "")),
+    h("label", { for: "s_n" }, "Nome di chi firma"), h("input", { id: "s_n", value: j.clients ? j.clients.name : "" }),
+    h("label", {}, "Firma del cliente (con il dito)"), cv,
+    h("button", { class: "ghost", onclick: () => { g.clearRect(0, 0, cv.width, cv.height); signed = false; } }, "Cancella firma"), say,
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      if (!signed) throw new Error("Serve la firma del cliente");
+      const work = $("s_w").value.trim(), signer = $("s_n").value.trim(), today = new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
+      const blocks = [{ h: "Rapporto di intervento" }, { t: "Data: " + today }, { t: "Lavoro: " + j.title }, j.clients ? { t: "Cliente: " + j.clients.name + (j.clients.address ? " – " + j.clients.address : "") } : null,
+        { h: "Lavori eseguiti" }, { t: work || "—" }, { h: "Materiale utilizzato" }, { t: mats.length ? mats.map((m) => "• " + m.description + (m.quantity != null ? " – " + Number(m.quantity) + (m.unit ? " " + m.unit : "") : "")).join("\n") : "—" }, ms ? { t: "Ore di lavoro registrate: " + dur(ms) } : null,
+        { h: "Firma per accettazione" }, { t: signer || "" }].filter(Boolean);
+      say.textContent = "Creo il PDF…";
+      const blob = await simplePdf(blocks, cv);
+      const file = new File([blob], "Rapporto.pdf", { type: "application/pdf" });
+      await uploadDoc(file, "rapporto", null, j.id, { party: (j.clients && j.clients.name) || j.title || "" });
+      say.textContent = "Salvato nei documenti del lavoro.";
+      try { await sharePdf(blob, "Rapporto intervento.pdf"); } catch { /* condivisione annullata */ } });
+      e.target.disabled = false; if (ok) back(); } }, "Salva PDF nei documenti e condividi")];
+}
+async function simplePdf(blocks, sig) {
+  const W = 1240, H = 1754, M = 90, FONT = "Arial, Helvetica, sans-serif", cvs = []; let g, y;
+  const newPage = () => { const cv = document.createElement("canvas"); cv.width = W; cv.height = H; g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H); g.fillStyle = "#14202B"; g.textBaseline = "top"; y = M; cvs.push(cv); };
+  const wrap = (t, maxW) => { const out = []; for (const para of String(t || "").split("\n")) { let cur = ""; for (const w of para.split(/\s+/)) { const s = cur ? cur + " " + w : w; if (g.measureText(s).width > maxW && cur) { out.push(cur); cur = w; } else cur = s; } out.push(cur); } return out; };
+  newPage(); const c0 = co();
+  g.font = "bold 44px " + FONT; g.fillText(c0.name || "", M, y); y += 60;
+  g.font = "22px " + FONT; g.fillStyle = "#4E5A66"; for (const l of [c0.vat_number ? "P.IVA " + c0.vat_number : "", c0.address || "", [c0.phone, c0.email].filter(Boolean).join("  ·  ")].filter(Boolean)) { g.fillText(l, M, y); y += 30; }
+  g.fillStyle = "#14202B"; y += 30;
+  for (const b of blocks) {
+    if (b.h) { if (y > H - 300) newPage(); y += 16; g.font = "bold 30px " + FONT; g.fillText(b.h, M, y); y += 46; }
+    else { g.font = "24px " + FONT; for (const l of wrap(b.t, W - 2 * M)) { if (y > H - M - 40) { newPage(); g.font = "24px " + FONT; } g.fillText(l, M, y); y += 34; } }
+  }
+  if (sig) { if (y > H - 380) newPage(); y += 10; g.fillStyle = "#fff"; g.fillRect(M, y, 520, 226); g.drawImage(sig, M, y, 520, 226); g.strokeStyle = "#C9D0D6"; g.lineWidth = 2; g.strokeRect(M, y, 520, 226); }
+  const pages = []; for (const cv of cvs) { const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.88)); pages.push({ bytes: new Uint8Array(await blob.arrayBuffer()), w: cv.width, h: cv.height }); }
+  return buildPdf(pages);
+}
+
+/* ---------- solleciti ai clienti (fatture scadute) ---------- */
+function solleciti(inv, co0) {
+  const txt = "Buongiorno, le ricordo che la fattura" + (inv.number ? " n. " + inv.number : "") + " del " + new Date(inv.doc_date + "T12:00").toLocaleDateString("it-IT") + " di " + money(inv.total) + " risulta ancora da saldare" + (inv.due_date ? " (scadenza " + new Date(inv.due_date + "T12:00").toLocaleDateString("it-IT") + ")" : "") + ". Grazie e cordiali saluti, " + (co0.name || "");
+  return txt;
+}
+
+/* ---------- solleciti: fatture scadute da incassare ---------- */
+async function chaseView() {
+  ownerNeeded();
+  const today = isoDay(new Date());
+  const [inv, cl] = await Promise.all([sb.from("invoices").select("*").eq("direction", "emessa").eq("paid", false).lt("due_date", today).order("due_date").then(chk), sb.from("clients").select("name,phone,email").then(chk)]);
+  const find = (n) => cl.find((c) => normT(c.name) === normT(n));
+  return [h("h1", {}, "Solleciti"), h("p", {}, "Fatture emesse scadute e ancora da incassare. Scegli come mandare il promemoria."),
+    inv.length ? inv.map((i) => { const c = find(i.counterparty), txt = solleciti(i, co()), ph = c && c.phone ? String(c.phone).replace(/[^\d]/g, "") : "";
+      return h("div", { class: "card" }, h("div", { class: "row" }, h("strong", {}, i.counterparty), h("span", { class: "when" }, money(i.total))),
+        h("div", { class: "muted" }, "Fattura " + (i.number || "") + " · scaduta il " + new Date(i.due_date + "T12:00").toLocaleDateString("it-IT")),
+        h("div", { class: "btns" },
+          ph ? h("a", { class: "link", href: "https://wa.me/" + (ph.length <= 10 ? "39" + ph : ph) + "?text=" + encodeURIComponent(txt), target: "_blank", rel: "noopener" }, "WhatsApp") : null,
+          c && c.email ? h("a", { class: "link", href: "mailto:" + c.email + "?subject=" + encodeURIComponent("Promemoria pagamento fattura " + (i.number || "")) + "&body=" + encodeURIComponent(txt) }, "Email") : null,
+          h("button", { class: "ghost", onclick: async (e) => { try { await navigator.clipboard.writeText(txt); e.target.textContent = "Copiato"; } catch { prompt("Copia il testo:", txt); } } }, "Copia testo")));
+    }) : h("p", {}, "Nessuna fattura scaduta da incassare. 🎉")];
+}
+
+/* ---------- radio (Radio Browser: elenco gratuito, nessuna pubblicità nell'app) ---------- */
+const RADIO_API = ["https://de1.api.radio-browser.info", "https://de2.api.radio-browser.info", "https://nl1.api.radio-browser.info", "https://at1.api.radio-browser.info"];
+async function radioFetch(path) {
+  let last;
+  for (const b of RADIO_API) { try { const r = await fetch(b + path); if (r.ok) return await r.json(); } catch (e) { last = e; } }
+  throw last || new Error("Elenco radio non raggiungibile (serve internet)");
+}
+const RP = { a: new Audio(), cur: null, timer: null };
+RP.a.preload = "none";
+const rbar = document.createElement("div");
+rbar.id = "rbar"; document.body.appendChild(rbar);
+function rbarDraw() {
+  if (!RP.cur) { rbar.style.display = "none"; return; }
+  rbar.style.display = "flex";
+  rbar.replaceChildren(h("span", { style: "flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" }, "📻 " + RP.cur.name),
+    h("button", { class: "ghost", "aria-label": "Play o pausa", style: "padding:0 14px;font-size:20px", onclick: () => { if (RP.a.paused) RP.a.play().catch(() => {}); else RP.a.pause(); } }, RP.a.paused ? "▶" : "⏸"),
+    h("button", { class: "ghost", "aria-label": "Spegni radio", style: "padding:0 14px;font-size:18px", onclick: radioStop }, "✕"));
+}
+RP.a.addEventListener("play", rbarDraw); RP.a.addEventListener("pause", rbarDraw);
+RP.a.addEventListener("error", () => { if (RP.cur) alert("Questa stazione non risponde. Provane un'altra."); });
+function radioPlay(st) {
+  RP.cur = st; RP.a.src = st.url; RP.a.play().catch(() => {}); rbarDraw();
+  try {
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({ title: st.name, artist: "Radio" });
+      navigator.mediaSession.setActionHandler("play", () => RP.a.play()); navigator.mediaSession.setActionHandler("pause", () => RP.a.pause()); navigator.mediaSession.setActionHandler("stop", radioStop);
+    }
+  } catch { /* media session non disponibile */ }
+}
+function radioStop() { clearTimeout(RP.timer); RP.timer = null; RP.a.pause(); RP.a.removeAttribute("src"); RP.a.load(); RP.cur = null; rbarDraw(); }
+const radioFavs = () => { try { return JSON.parse(lk("radio_favs") || "[]"); } catch { return []; } };
+const CURATED = ["Radio Paradise", "SomaFM Groove Salad", "SomaFM Drone Zone", "SomaFM Secret Agent", "SomaFM Lush", "Jazz24", "Radio Swiss Jazz", "Radio Swiss Classic", "Radio Swiss Pop", "FIP"];
+const toSt = (s) => ({ name: s.name, url: s.url_resolved || s.url, bitrate: s.bitrate, tags: s.tags, country: s.country });
+async function radioView() {
+  const R = (S.radio = S.radio || { q: "", tag: "", cc: "IT", eco: true, mode: "search" });
+  const list = h("div"), say = h("p", { class: "muted" }), qIn = h("input", { placeholder: "Cerca una radio (nome)…", value: R.q });
+  const row = (s) => { const favs = radioFavs(), isF = favs.some((f) => f.url === s.url);
+    return h("div", { class: "card" }, h("div", { class: "row" }, h("div", { style: "min-width:0;flex:1" }, h("strong", {}, s.name), h("div", { class: "muted" }, [s.country, s.bitrate ? s.bitrate + " kbps" : "", (s.tags || "").split(",").slice(0, 3).join(", ")].filter(Boolean).join(" · "))),
+      h("div", { style: "display:flex;gap:4px" }, h("button", { class: "ghost", style: "font-size:22px;padding:0 8px", "aria-label": "Preferita", onclick: () => { const f = radioFavs().filter((x) => x.url !== s.url); if (!isF) f.push(s); sk("radio_favs", JSON.stringify(f)); load().catch(() => {}); } }, isF ? "★" : "☆"),
+        h("button", { class: "ok", style: "height:44px", onclick: () => radioPlay(s) }, "▶")))); };
+  const show = (arr) => { list.replaceChildren(...(arr.length ? arr.map(row) : [h("p", {}, "Nessuna stazione trovata.")])); };
+  async function load() {
+    say.textContent = "";
+    try {
+      if (R.mode === "fav") { show(radioFavs()); return; }
+      if (R.mode === "music") {
+        if (!S.radioCur) { say.textContent = "Cerco le radio solo musica…"; const out = []; await Promise.all(CURATED.map(async (n) => { try { const r = await radioFetch("/json/stations/byname/" + encodeURIComponent(n) + "?hidebroken=true&limit=6&order=clickcount&reverse=true"); const s = r.find((x) => (x.url_resolved || "").startsWith("https") && normT(x.name).includes(normT(n))); if (s) out.push(toSt(s)); } catch { /* una stazione non risponde */ } })); S.radioCur = out; }
+        say.textContent = ""; show(S.radioCur); return;
+      }
+      say.textContent = "Cerco…";
+      const p = new URLSearchParams({ hidebroken: "true", is_https: "true", limit: "40", order: "clickcount", reverse: "true" });
+      if (R.q) p.set("name", R.q); if (R.tag) p.set("tag", R.tag); if (R.cc) p.set("countrycode", R.cc);
+      let r = (await radioFetch("/json/stations/search?" + p.toString())).map(toSt);
+      if (R.eco) { const low = r.filter((x) => x.bitrate > 0 && x.bitrate <= 96); if (low.length) r = low; }
+      say.textContent = ""; show(r);
+    } catch (e) { say.textContent = e.message || "Errore"; list.replaceChildren(); }
+  }
+  const setMode = (m, tag) => { R.mode = m; if (tag !== undefined) R.tag = tag; drawChips(); load().catch(() => {}); };
+  const chips = h("div", { class: "chips" });
+  const drawChips = () => chips.replaceChildren(...[["music", "🎵 Solo musica, senza spot", "music", ""], ["search", "Tutte", "search", ""], ["fav", "★ Preferite", "fav", ""], ["jazz", "Jazz", "search", "jazz"], ["classical", "Classica", "search", "classical"], ["lounge", "Lounge", "search", "lounge"], ["ambient", "Ambient", "search", "ambient"], ["pop", "Pop", "search", "pop"], ["rock", "Rock", "search", "rock"], ["news", "Notizie", "search", "news"]]
+    .map(([k, l, m, t]) => h("button", { class: "chip" + ((m === "search" ? R.mode === "search" && R.tag === t && k !== "fav" && k !== "music" : R.mode === m) ? " on" : ""), onclick: () => setMode(m, t) }, l)));
+  qIn.addEventListener("keydown", (e) => { if (e.key === "Enter") { R.q = qIn.value.trim(); R.mode = "search"; drawChips(); load().catch(() => {}); } });
+  drawChips(); setTimeout(() => load().catch(() => {}), 0);
+  return [h("h1", {}, "Radio"),
+    h("div", { style: "display:flex;gap:8px" }, qIn, h("button", { class: "ok", onclick: () => { R.q = qIn.value.trim(); R.mode = "search"; drawChips(); load().catch(() => {}); } }, "Cerca")), chips,
+    h("div", { class: "card" },
+      h("div", { class: "sp" }, h("div", {}, h("label", { for: "rc", style: "margin-top:0" }, "Paese"), h("select", { id: "rc", onchange: (e) => { R.cc = e.target.value; load().catch(() => {}); } }, [["IT", "Italia"], ["", "Tutto il mondo"], ["CH", "Svizzera"], ["GB", "Regno Unito"], ["US", "USA"], ["FR", "Francia"], ["DE", "Germania"]].map(([k, l]) => h("option", { value: k, selected: R.cc === k }, l)))),
+        h("div", {}, h("label", { for: "rt", style: "margin-top:0" }, "Spegni dopo"), h("select", { id: "rt", onchange: (e) => { clearTimeout(RP.timer); const m = Number(e.target.value); if (m) RP.timer = setTimeout(radioStop, m * 60000); } }, [[0, "Mai"], [30, "30 min"], [60, "1 ora"], [120, "2 ore"], [240, "4 ore"]].map(([k, l]) => h("option", { value: k }, l))))),
+      cbox("re", "Risparmio batteria (flussi leggeri)", R.eco)),
+    say, list,
+    h("p", { class: "muted" }, "Nell'app non c'è pubblicità. Le radio commerciali però leggono i loro spot: per evitarli usa «Solo musica». Per consumare meno batteria l'app fa solo suonare l'audio; su Android continua anche a schermo spento."),
+    (() => { setTimeout(() => { const el = $("re"); if (el) el.addEventListener("change", () => { R.eco = el.checked; load().catch(() => {}); }); }, 0); return null; })()];
+}
+
+/* ---------- cerca ovunque ---------- */
+async function searchView() {
+  const out = h("div"), inp = h("input", { placeholder: "Cerca lavori, clienti, documenti, manuali…", value: S.gq || "" });
+  const sec = (title, arr) => arr.length ? [h("h2", {}, title), arr] : null;
+  const item = (t, sub, fn) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: fn }, h("strong", {}, t), sub ? h("div", { class: "muted" }, sub) : null);
+  const run = async () => {
+    const t = clean(inp.value); S.gq = inp.value; if (t.length < 2) { out.replaceChildren(h("p", { class: "muted" }, "Scrivi almeno 2 lettere.")); return; }
+    out.replaceChildren(h("p", { class: "muted" }, "Cerco…"));
+    const lk2 = (cols) => cols.map((c) => c + ".ilike.*" + t + "*").join(",");
+    const q = async (tbl, sel, cols, lim) => { try { return chk(await sb.from(tbl).select(sel).or(lk2(cols)).limit(lim || 8)); } catch { return []; } };
+    const [jobs, cl, docs, lib, stock, assets, reps, posts] = await Promise.all([
+      q("jobs", "id,title,address", ["title", "address", "description"]), q("clients", "id,name,phone,address", ["name", "phone", "address", "email"]),
+      q("documents", "id,title,file_name,file_path,counterparty,kind", ["title", "file_name", "counterparty", "ocr_text", "doc_number"]), q("library", "id,title,brand,model,file_path,url", ["title", "brand", "model", "note", "ocr_text"]),
+      q("stock", "id,description,code,quantity,unit", ["description", "code", "location"]), q("assets", "id,title", ["title", "notes", "address_url"]), q("reports", "id,day,summary", ["summary"]), q("posts", "id,body", ["body"])]);
+    const nodes = [
+      sec("Lavori", jobs.map((j) => item(j.title, j.address, () => go({ t: "job", id: j.id })))), sec("Clienti", cl.map((c) => item(c.name, [c.phone, c.address].filter(Boolean).join(" · "), () => go({ t: "client", id: c.id })))),
+      sec("Documenti", docs.map((d) => item(d.file_name || d.title || "Documento", [KINDS[d.kind], d.counterparty].filter(Boolean).join(" · "), () => openDoc(d)))),
+      sec("Biblioteca tecnica", lib.map((l) => item(l.title, [l.brand, l.model].filter(Boolean).join(" "), () => (l.file_path ? openDoc(l) : l.url ? window.open(l.url, "_blank") : go({ t: "libForm", id: l.id }))))),
+      sec("Magazzino", stock.map((s) => item(s.description, (s.code ? s.code + " · " : "") + Number(s.quantity) + (s.unit ? " " + s.unit : ""), () => go({ t: "stockForm", id: s.id })))), sec("Schede impianto", assets.map((a) => item(a.title, "", () => go({ t: "assetForm", id: a.id })))),
+      sec("Rapportini", reps.map((r) => item(dayLabel(r.day), (r.summary || "").slice(0, 100), () => go({ t: "reports" })))), sec("Bacheca", posts.map((p) => item((p.body || "").slice(0, 80), "", () => go({ t: "posts" }))))
+    ].filter(Boolean);
+    out.replaceChildren(...(nodes.length ? nodes.flat(Infinity) : [h("p", {}, "Niente trovato.")]));
+  };
+  inp.addEventListener("input", () => { clearTimeout(inp._t); inp._t = setTimeout(() => run().catch(() => {}), 350); });
+  setTimeout(() => { if (inp.value) run().catch(() => {}); }, 0);
+  return [h("h1", {}, "Cerca ovunque"), inp, h("div", { style: "margin-top:8px" }, out)];
+}
+
+/* ---------- novità (avvisi dentro l'app) ---------- */
+const bell = { n: 0, at: 0 };
+async function newsItems() {
+  const since = Number(lk("seen_" + S.p.id)) || Date.now() - 7 * 864e5, iso = new Date(since).toISOString(), out = [];
+  await loadTeam();
+  const t = async (fn) => { try { await fn(); } catch { /* sezione non disponibile */ } };
+  await t(async () => { chk(await sb.from("comments").select("*").gt("created_at", iso).neq("user_id", S.p.id).order("created_at", { ascending: false }).limit(20)).forEach((c) => out.push({ at: c.created_at, text: who(c.user_id) + " ha commentato: " + c.body.slice(0, 80), go: { t: c.ref_type === "post" ? "posts" : "reports" } })); });
+  await t(async () => { chk(await sb.from("posts").select("*").gt("created_at", iso).neq("user_id", S.p.id).limit(10)).forEach((p) => out.push({ at: p.created_at, text: "Bacheca – " + who(p.user_id) + ": " + p.body.slice(0, 80), go: { t: "posts" } })); });
+  await t(async () => { chk(await sb.from("reports").select("*").gt("created_at", iso).neq("user_id", S.p.id).limit(10)).forEach((r) => out.push({ at: r.created_at, text: "Nuovo rapportino di " + who(r.user_id), go: { t: "reports" } })); });
+  if (!OWNER()) await t(async () => { chk(await sb.from("jobs").select("id,title,created_at").gt("created_at", iso).limit(10)).forEach((j) => out.push({ at: j.created_at, text: "Nuovo lavoro: " + j.title, go: { t: "job", id: j.id } })); });
+  if (OWNER()) {
+    const pend = S.team.filter((x) => x.status === "pending"); pend.forEach((x) => out.push({ at: x.created_at || new Date().toISOString(), text: x.full_name + " chiede di entrare in azienda", go: null, tab: "team" }));
+    await t(async () => { chk(await sb.from("leave_requests").select("*").eq("status", "richiesta")).forEach((r) => out.push({ at: r.created_at, text: "Richiesta " + r.kind.toLowerCase() + " di " + who(r.user_id), go: { t: "leave" } })); });
+    await t(async () => { const td = isoDay(new Date(Date.now() + 14 * 864e5)); chk(await sb.from("warranties").select("*").eq("done", false).lte("due_date", td)).forEach((w) => out.push({ at: new Date().toISOString(), text: "Scadenza: " + w.title + " (" + new Date(w.due_date + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" }) + ")", go: { t: "warr" } })); });
+  }
+  return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+}
+async function refreshBell() {
+  const el = $("bell"); if (!el) return;
+  try { if (Date.now() - bell.at > 60000) { bell.n = (await newsItems()).length; bell.at = Date.now(); } } catch { return; }
+  const e2 = $("bell"); if (e2) e2.textContent = "🔔" + (bell.n ? " " + bell.n : "");
+}
+async function newsView() {
+  const items = await newsItems(); sk("seen_" + S.p.id, String(Date.now())); bell.n = 0; bell.at = Date.now();
+  return [h("h1", {}, "Novità"), items.length ? items.map((i) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => { if (i.tab) setTab(i.tab); else if (i.go) go(i.go); } }, h("div", { class: "when" }, fDT(i.at)), h("div", {}, i.text))) : h("p", {}, "Niente di nuovo dall'ultima volta. 🎉"),
+    h("p", { class: "muted" }, "Sono avvisi dentro l'app: li vedi quando la apri. Le notifiche a telefono bloccato non sono attive.")];
+}
+
+/* ---------- assistente IA e impostazioni extra ---------- */
+async function aiCall(payload) {
+  const { data, error } = await sb.functions.invoke("ai-assist", { body: { provider: co().ai_provider || "claude", ownName: co().name || "", ...payload } });
+  if (error) { let m = error.message || String(error); try { const j = await error.context.json(); if (j && j.error) m = j.error; } catch { /* nessun dettaglio */ } throw new Error("Assistente IA: " + m); }
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+const toB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(blob); });
+async function extraView() {
+  const c = co(), own = OWNER();
+  const ans = h("div", { class: "card", style: "display:none;white-space:pre-wrap" }), qIn = h("textarea", { rows: "3", placeholder: "Es. Quanti lavori ho aperti? Quali fatture sono scadute?" });
+  return [h("h1", {}, "Assistente IA"),
+    h("div", { class: "note", style: "margin-top:0" }, h("strong", {}, "Cos'è: "), "un aiuto che legge meglio bolle e fatture e risponde a domande sui tuoi dati. È facoltativo e spento finché il titolare non lo accende.",
+      h("br"), h("br"), h("strong", {}, "Cosa comporta: "), "si paga a consumo (circa 1-2 centesimi a documento con Claude; con Gemini c'è un piano gratuito con limiti). I documenti inviati vanno ai server del fornitore scelto. L'IA può sbagliare: i dati letti vanno sempre controllati prima di salvare."),
+    own ? h("div", { class: "card" },
+      cbox("x_ai", "Attiva l'assistente IA", c.ai_enabled),
+      h("label", { for: "x_pv" }, "Motore"), h("select", { id: "x_pv" }, [["claude", "Claude (a consumo, più preciso)"], ["gemini", "Gemini (piano gratuito con limiti)"]].map(([k, l]) => h("option", { value: k, selected: (c.ai_provider || "claude") === k }, l))),
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Serve anche un passaggio una tantum su Supabase (funzione «ai-assist» e chiave): te lo spiego nelle istruzioni."),
+      h("h2", {}, "Altre impostazioni"),
+      h("label", { for: "x_hc", style: "margin-top:0" }, "Costo orario della manodopera (€/ora)"), h("input", { id: "x_hc", type: "number", inputmode: "decimal", step: "0.01", value: c.hourly_cost != null ? c.hourly_cost : "" }),
+      cbox("x_pos", "Registra la posizione quando si timbra (entrata e uscita)", c.track_pos),
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Il telefono chiede il permesso. Se il dipendente lo nega, timbra lo stesso senza posizione."),
+      h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+        chk(await sb.rpc("set_company_extra", { p_hourly: numOrNull($("x_hc").value), p_ai: $("x_ai").checked, p_provider: $("x_pv").value, p_pos: $("x_pos").checked }));
+        const { data } = await sb.from("profiles").select("*, companies(*)").eq("id", S.p.id).maybeSingle(); if (data) S.p = data; });
+        e.target.disabled = false; if (ok) render(); } }, "Salva impostazioni")) : h("p", {}, c.ai_enabled ? "L'assistente è attivo: trovi «Leggi con IA» quando carichi un documento." : "Al momento l'assistente non è attivo."),
+    c.ai_enabled ? [h("h2", {}, "Chiedi all'assistente"), qIn,
+      h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: async (e) => { const q = qIn.value.trim(); if (!q) return; e.target.disabled = true; e.target.textContent = "Penso…";
+        await attempt(async () => { const ctx = await aiContext(); const r = await aiCall({ task: "ask", question: q, context: ctx }); ans.style.display = "block"; ans.textContent = r.text || "Nessuna risposta."; });
+        e.target.disabled = false; e.target.textContent = "Chiedi"; } }, "Chiedi"), ans,
+      h("p", { class: "muted" }, "L'assistente vede un riepilogo di lavori e " + (OWNER() ? "fatture" : "attività") + " recenti. Non è un consulente fiscale o legale.")] : null];
+}
+async function aiContext() {
+  const t = new Date().toISOString().slice(0, 10), ctx = ["Oggi: " + t];
+  const jobs = chk(await sb.from("jobs").select("title,status,start_at,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(25));
+  ctx.push("Lavori recenti:\n" + jobs.map((j) => "- " + j.title + " [" + STATUS[j.status] + "]" + (j.start_at ? " " + j.start_at.slice(0, 10) : "") + (j.clients ? " – " + j.clients.name : "")).join("\n"));
+  if (OWNER()) { try { const inv = chk(await sb.from("invoices").select("direction,number,counterparty,total,paid,due_date,doc_date").order("doc_date", { ascending: false }).limit(25));
+    ctx.push("Fatture recenti:\n" + inv.map((i) => "- " + i.direction + " " + (i.number || "") + " " + i.counterparty + " " + i.total + "€ " + (i.paid ? "pagata" : "da saldare" + (i.due_date ? " scad. " + i.due_date : ""))).join("\n")); } catch { /* ufficio non attivo */ } }
+  return ctx.join("\n\n");
+}
+async function aiReadFile(blob, mime) { return aiCall({ task: "doc", mime, b64: await toB64(blob) }); }
+
+/* ---------- posizione alla timbratura ---------- */
+async function posArgs() {
+  if (!co().track_pos || !navigator.geolocation) return null;
+  return new Promise((r) => navigator.geolocation.getCurrentPosition((p) => r({ lat: p.coords.latitude, lng: p.coords.longitude }), () => r(null), { timeout: 8000, maximumAge: 60000 }));
+}
+async function clockIn(job) { const p = await posArgs(); chk(p ? await sb.rpc("clock_in_pos", { p_job: job || null, p_lat: p.lat, p_lng: p.lng }) : await sb.rpc("clock_in", { p_job: job || null })); }
+async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clock_out_pos", { p_lat: p.lat, p_lng: p.lng }) : await sb.rpc("clock_out")); }
+
+/* ---------- elenco delle nuove pagine ---------- */
+const NEWROUTES = {
+  reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
+  warr: warrView, chase: chaseView, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+};
+
 /* ---------- avvio ---------- */
 function recoveryScreen(err) {
   show(h("div", { class: "logo" }), h("h1", {}, "Nuova password"), h("p", {}, "Scegli la nuova password per il tuo account."),
@@ -425,7 +1136,7 @@ async function render() {
       else if (sub.t === "clientForm") nodes = await clientForm(sub.id);
       else if (sub.t === "docForm") nodes = await docForm(sub.job);
       else if (sub.t === "docEdit") nodes = await docEditForm(sub.id);
-      else if (sub.t === "info") nodes = infoView();
+      else if (NEWROUTES[sub.t]) nodes = await NEWROUTES[sub.t](sub);
       else if (sub.t === "quote") nodes = await quoteView(sub.id);
       else if (sub.t === "quoteForm") nodes = await quoteForm(sub.id);
       else if (sub.t === "invoiceForm") nodes = await invoiceForm(sub.id);
@@ -439,9 +1150,11 @@ async function render() {
       else if (S.tab === "team") nodes = await teamView();
       else if (S.tab === "hours") nodes = await hoursView();
       else if (S.tab === "office") nodes = await officeView();
+      else if (S.tab === "more") nodes = moreView();
     }
     if (my !== renderId) return;
     show(topbar(!!sub), nodes, sub ? null : navbar());
+    refreshBell();
   } catch (e) {
     if (my !== renderId) return;
     show(topbar(false), h("h1", {}, "Qualcosa non va"), h("div", { class: "err" }, String(e.message || e)),
@@ -452,12 +1165,12 @@ function topbar(isSub) {
   if (isSub) return h("div", { class: "top" }, h("button", { class: "ghost", onclick: back }, "← Indietro"));
   return h("div", { class: "top" },
     h("span", { class: "muted" }, S.p.companies?.name || ""),
-    h("span", {}, h("button", { class: "ghost", style: "margin-right:14px", onclick: () => go({ t: "info" }) }, "Info"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
+    h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
   const items = OWNER()
-    ? [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["clients", "Clienti"], ["docs", "Documenti"], ["office", "Ufficio"], ["team", "Team"]]
-    : [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["docs", "Documenti"], ["hours", "Ore"]];
+    ? [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["clients", "Clienti"], ["docs", "Documenti"], ["office", "Ufficio"], ["more", "Altro"]]
+    : [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["docs", "Documenti"], ["hours", "Ore"], ["more", "Altro"]];
   return h("div", { class: "nav" }, items.map(([k, l]) => h("button", { class: S.tab === k ? "on" : "", onclick: () => setTab(k) }, l)));
 }
 const badge = (s) => h("span", { class: "badge b-" + s }, STATUS[s]);
@@ -497,6 +1210,7 @@ async function jobView(id) {
   const urls = {};
   if (photos.length) { const r = await sb.storage.from("docs").createSignedUrls(photos.map((d) => d.file_path), 3600); (r.data || []).forEach((x) => { if (x.signedUrl) urls[x.path] = x.signedUrl; }); }
   const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
+  const ck = await jobChecklists(j).catch(() => null), cost = OWNER() ? await jobCostCard(j, docs).catch(() => null) : null;
   return [
     h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, j.title), badge(j.status)),
     j.start_at ? h("p", { class: "when" }, "🕒 " + fDT(j.start_at) + (j.end_at ? " → " + fTime(j.end_at) : "")) : null,
@@ -530,12 +1244,15 @@ async function jobView(id) {
         const q = $("mq").value; chk(await sb.from("job_materials").insert({ job_id: j.id, company_id: j.company_id, description, quantity: q === "" ? null : Number(q), unit: $("mu").value.trim() || null, added_by: S.p.id }));
       }) }, "Aggiungi")),
 
+    ck,
     h("h2", {}, "Foto del lavoro"),
     photoSection(j, photos, urls),
     h("h2", {}, "Documenti"),
     others.length ? others.map((d) => docItem(d, false)) : h("p", {}, "Nessun documento collegato."),
     h("button", { class: "secondary", style: "width:100%", onclick: () => go({ t: "docForm", job: j.id }) }, "+ Scansiona o aggiungi documento"),
 
+    h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: () => go({ t: "signoff", job: j.id }) }, "✍️ Rapporto e firma del cliente"),
+    cost,
     OWNER() ? [
       h("button", { class: "secondary", style: "width:100%;margin-top:22px", onclick: () => go({ t: "jobForm", id: j.id }) }, "Modifica lavoro"),
       h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questo lavoro?")) return; if (await attempt(async () => { chk(await sb.from("jobs").delete().eq("id", j.id)); })) back(); } }, "Elimina lavoro")
@@ -584,6 +1301,7 @@ async function jobForm(id) {
 }
 
 /* ---------- foto dei lavori ---------- */
+let photoPhase = "";
 function photoSection(j, photos, urls) {
   const status = h("p", { class: "muted" });
   const addPhotos = async (files) => {
@@ -591,7 +1309,7 @@ function photoSection(j, photos, urls) {
     let okc = 0;
     for (let i = 0; i < list.length; i++) {
       status.textContent = "Carico foto " + (i + 1) + " di " + list.length + "…";
-      try { await uploadDoc(list[i], "foto", null, j.id, { party: j.title || "" }); okc++; } catch (e) { alert("Foto " + (i + 1) + ": " + translate(e && e.message ? e.message : e)); }
+      try { await uploadDoc(list[i], "foto", null, j.id, { party: j.title || "", phase: photoPhase }); okc++; } catch (e) { alert("Foto " + (i + 1) + ": " + translate(e && e.message ? e.message : e)); }
     }
     status.textContent = okc ? okc + (okc === 1 ? " foto caricata" : " foto caricate") : "";
     if (okc) render();
@@ -600,9 +1318,10 @@ function photoSection(j, photos, urls) {
   const gal = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: async (e) => { const f = [...e.target.files]; e.target.value = ""; await addPhotos(f); } });
   return [
     photos.length ? h("div", { style: "display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px" }, photos.map((d) => urls[d.file_path]
-      ? h("button", { style: "padding:0;height:auto;aspect-ratio:1;background:#EEF0F2;border:1px solid #DDE2E6;overflow:hidden", "aria-label": "Apri foto", onclick: () => openPhoto(d, urls[d.file_path]) },
-          h("img", { src: urls[d.file_path], alt: d.title || "Foto", loading: "lazy", style: "width:100%;height:100%;object-fit:cover;display:block" }))
+      ? h("button", { style: "padding:0;height:auto;aspect-ratio:1;background:#EEF0F2;border:1px solid #DDE2E6;overflow:hidden;position:relative", "aria-label": "Apri foto", onclick: () => openPhoto(d, urls[d.file_path]) },
+          h("img", { src: urls[d.file_path], alt: d.title || "Foto", loading: "lazy", style: "width:100%;height:100%;object-fit:cover;display:block" }), d.phase ? h("span", { class: "badge", style: "position:absolute;left:4px;top:4px;background:#14202Bcc;color:#fff;text-transform:uppercase;font-size:10px" }, d.phase) : null)
       : null)) : h("p", {}, "Nessuna foto per ora."),
+    (() => { const wrap = h("div", { class: "chips", style: "margin:0 0 8px" }), draw = () => wrap.replaceChildren(...[["", "Foto normale"], ["prima", "Prima"], ["dopo", "Dopo"]].map(([k, l]) => h("button", { class: "chip" + (photoPhase === k ? " on" : ""), onclick: () => { photoPhase = k; draw(); } }, l))); draw(); return wrap; })(),
     h("div", { class: "btns", style: "margin-top:0" }, h("button", { class: "ok", onclick: () => cam.click() }, "📷 Scatta foto"), h("button", { class: "secondary", onclick: () => gal.click() }, "🖼️ Dalla galleria")),
     status, cam, gal,
     photos.length > 1 ? h("button", { class: "ghost", onclick: async (e) => { e.target.disabled = true; await attempt(() => zipDocs(photos, () => "", "Foto_" + (slugName(j.title, 30) || "lavoro") + ".zip", (t) => { status.textContent = t; })); status.textContent = ""; e.target.disabled = false; } }, "⬇ Scarica tutte le foto (ZIP)") : null,
@@ -1093,6 +1812,30 @@ async function docForm(jobId) {
       analyzed = true; setSay((e && e.message ? e.message : "Lettura non riuscita") + " Puoi compilare i dati a mano e caricare lo stesso.", true); return false;
     }
   }
+  async function aiAnalyze() {
+    if (!hasSrc()) { alert("Scansiona una pagina o scegli un file."); return false; }
+    setSay("Leggo con l'IA… qualche secondo.");
+    try {
+      let blob, mime;
+      const f0 = $("df").files[0];
+      if (!pages.length && f0 && (f0.type === "application/pdf" || /\.pdf$/i.test(f0.name))) { blob = f0; mime = "application/pdf"; }
+      else {
+        const cv = pages.length ? await renderPage(pages[0].bmp, pages[0].rot, "doc", 1800) : await renderPage(await createImageBitmap(f0), 0, "orig", 1800);
+        blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.85)); mime = "image/jpeg";
+      }
+      const r = await aiReadFile(blob, mime);
+      const kind = Object.prototype.hasOwnProperty.call(KINDS, r.kind) ? r.kind : "altro";
+      if ($("dk").value === "auto" || $("dk").value === "altro") $("dk").value = kind;
+      if (r.party) $("dp").value = String(r.party);
+      if (r.number) $("dn").value = String(r.number);
+      if (r.date && /^\d{4}-\d{2}-\d{2}$/.test(r.date)) $("dd").value = r.date;
+      if (r.amount != null && isFinite(Number(r.amount))) $("da").value = Number(r.amount);
+      items = ITEM_KINDS.includes(kind) && Array.isArray(r.items) ? r.items.filter((x) => x && x.desc).map((x) => ({ on: true, desc: String(x.desc), qty: x.qty != null && isFinite(Number(x.qty)) ? Number(x.qty) : null, unit: x.unit ? String(x.unit) : "" })) : [];
+      drawItems(); analyzed = true; upName();
+      setSay("Letto con l'IA: " + KINDS[kind] + (r.party ? " · " + r.party : "") + (r.amount != null ? " · " + money(Number(r.amount)) : "") + (items.length ? " · " + items.length + " righe" : "") + ". Controlla sempre i dati prima di salvare.");
+      return true;
+    } catch (e) { setSay((e && e.message ? e.message : "Lettura con IA non riuscita") + " Puoi usare «Leggi il documento» (gratuito).", true); return false; }
+  }
   async function makePdf() {
     const out = [];
     for (const p of pages) {
@@ -1108,6 +1851,7 @@ async function docForm(jobId) {
     h("div", { class: "card" }, h("div", { class: "title", style: "margin-top:0" }, "Scansiona"), h("p", { class: "muted" }, "Inquadra il foglio da sopra, con buona luce e riempiendo l'inquadratura. Puoi aggiungere più pagine."), box, camIn, galIn),
     h("label", { for: "df" }, "Oppure carica un file già pronto (PDF o foto)"), h("input", { id: "df", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px", onchange: () => { analyzed = false; upName(); } }),
     h("button", { class: "secondary", style: "width:100%;margin-top:14px", onclick: async (e) => { e.target.disabled = true; await analyze(); e.target.disabled = false; } }, "🔍 Leggi il documento e compila i dati"),
+    co().ai_enabled ? h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: async (e) => { e.target.disabled = true; await aiAnalyze(); e.target.disabled = false; } }, "✨ Leggi con IA (più preciso)") : null,
     say,
     h("h2", {}, "Dati del documento"),
     h("label", { for: "dk" }, "Tipo"),
@@ -1174,12 +1918,12 @@ async function hoursView() {
     h("h1", {}, "Le mie ore"),
     open ? h("div", { class: "note", style: "margin-top:0" }, "Sei dentro dalle " + fTime(open.started_at) + " (" + dur(Date.now() - D(open.started_at)) + ")" + (open.jobs?.title ? " · " + open.jobs.title : "")) : null,
     open
-      ? h("button", { class: "primary big out", onclick: act(async () => { chk(await sb.rpc("clock_out")); }) }, "Timbra uscita")
+      ? h("button", { class: "primary big out", onclick: act(async () => { await clockOut(); }) }, "Timbra uscita")
       : [h("label", { for: "hj" }, "Lavoro (facoltativo)"), h("select", { id: "hj" }, h("option", { value: "" }, "— nessuno —"), myJobs.map((j) => h("option", { value: j.id }, j.title))),
-        h("button", { class: "primary big", onclick: act(async () => { chk(await sb.rpc("clock_in", { p_job: $("hj").value || null })); }) }, "Timbra entrata")],
+        h("button", { class: "primary big", onclick: act(async () => { await clockIn($("hj").value || null); }) }, "Timbra entrata")],
     h("h2", {}, "Questo mese: " + dur(total)),
     entries.length ? h("div", { class: "card" }, entries.map((e, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
-      h("div", {}, h("div", {}, fDate(e.started_at)), h("div", { class: "muted" }, fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs?.title ? " · " + e.jobs.title : ""))),
+      h("div", {}, h("div", {}, fDate(e.started_at)), h("div", { class: "muted" }, fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs?.title ? " · " + e.jobs.title : "")), e.in_lat != null ? h("a", { class: "link", style: "font-size:13px", target: "_blank", rel: "noopener", href: "https://www.google.com/maps/search/?api=1&query=" + e.in_lat + "," + e.in_lng }, "📍 Posizione entrata") : null),
       h("strong", {}, dur((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)))))) : h("p", {}, "Nessuna timbratura questo mese.")
   ];
 }
@@ -1221,7 +1965,7 @@ async function uploadDoc(f0, kind, title, jobId, m) {
   const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
   if (up.error) throw up.error;
   const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: jobId || null, kind, title: name, counterparty: m.party || null, doc_number: m.number || null, amount: m.amount != null ? m.amount : null,
-    doc_date: date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id }).select("id").single();
+    doc_date: date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id, ...(m.phase ? { phase: m.phase } : {}) }).select("id").single();
   if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
   return ins.data.id;
 }
@@ -1561,6 +2305,7 @@ async function invoiceForm(id) {
   const inv = id ? chk(await sb.from("invoices").select("*").eq("id", id).single()) : null;
   const pre = inv || S.draft.inv || {}; S.draft.inv = null;
   const clients = chk(await sb.from("clients").select("name").order("name"));
+  const jobsAll = chk(await sb.from("jobs").select("id,title").order("start_at", { ascending: false, nullsFirst: false }).limit(120));
   let docRow = null; if (inv && inv.doc_id) { const r = await sb.from("documents").select("file_path").eq("id", inv.doc_id).maybeSingle(); docRow = r.data; }
   const vat = hasVat(), rate0 = vat ? (pre.vat_rate != null ? num(pre.vat_rate) : 22) : 0;
   const summary = (net, rate) => { const v = r2(net * rate / 100); return (vat ? "IVA " + money(v) + " · " : "") + "Totale " + money(r2(net + v)); };
@@ -1570,6 +2315,7 @@ async function invoiceForm(id) {
     h("label", { for: "i_dir" }, "Tipo"), h("select", { id: "i_dir" }, [["emessa", "Emessa (a un cliente)"], ["ricevuta", "Ricevuta (da un fornitore)"]].map(([k, l]) => h("option", { value: k, selected: (pre.direction || "emessa") === k }, l))),
     h("label", { for: "i_num" }, "Numero fattura"), h("input", { id: "i_num", value: pre.number || "" }),
     h("label", { for: "i_cp" }, "Cliente / fornitore"), h("input", { id: "i_cp", value: pre.counterparty || "", list: "dl_cl" }), h("datalist", { id: "dl_cl" }, clients.map((c) => h("option", { value: c.name }))),
+    h("label", { for: "i_job" }, "Lavoro collegato (facoltativo, per il costo/guadagno)"), h("select", { id: "i_job" }, h("option", { value: "" }, "— nessuno —"), jobsAll.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, j.title))),
     h("label", { for: "i_date" }, "Data fattura"), h("input", { id: "i_date", type: "date", value: pre.doc_date || isoDay(new Date()) }),
     h("label", { for: "i_net" }, vat ? "Imponibile € (senza IVA)" : "Importo €"), h("input", { id: "i_net", type: "number", inputmode: "decimal", step: "0.01", value: pre.net != null ? pre.net : "", oninput: calc }),
     vat ? [h("label", { for: "i_rate" }, "Aliquota IVA"), h("select", { id: "i_rate", onchange: calc }, RATES.map((r) => h("option", { value: r, selected: r === rate0 }, r + "%")))] : null,
@@ -1591,7 +2337,7 @@ async function invoiceForm(id) {
         let doc_id = inv ? inv.doc_id : null; const f = $("i_file").files[0];
         if (f) doc_id = await uploadDoc(f, "fattura", null, null, { party: cp, number: $("i_num").value.trim(), amount: r2(net + v), date });
         const paid = $("i_paid").checked;
-        const payload = { direction: dir, number: $("i_num").value.trim() || null, doc_date: date, due_date: $("i_due").value || null, counterparty: cp, net, vat_rate: rate, vat_amount: v, total: r2(net + v), paid, paid_date: paid ? ($("i_pd").value || isoDay(new Date())) : null, doc_id, notes: $("i_notes").value.trim() || null };
+        const payload = { direction: dir, number: $("i_num").value.trim() || null, doc_date: date, due_date: $("i_due").value || null, counterparty: cp, net, vat_rate: rate, vat_amount: v, total: r2(net + v), paid, paid_date: paid ? ($("i_pd").value || isoDay(new Date())) : null, doc_id, notes: $("i_notes").value.trim() || null, ...(($("i_job").value || (inv && inv.job_id)) ? { job_id: $("i_job").value || null } : {}) };
         if (id) chk(await sb.from("invoices").update(payload).eq("id", id)); else chk(await sb.from("invoices").insert({ ...payload, company_id: S.p.company_id }));
       });
       if (ok) back(); else e.target.disabled = false;
@@ -1675,7 +2421,12 @@ async function homeView() {
     const toC = late.filter((i) => i.direction === "emessa"), toP = late.filter((i) => i.direction === "ricevuta");
     if (late.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => { S.off = "home"; setTab("office"); } },
       h("strong", {}, "Fatture scadute"), toC.length ? h("div", { class: "muted" }, "Da incassare: " + money(r2(toC.reduce((s, i) => s + Number(i.total), 0))) + " (" + toC.length + ")") : null,
-      toP.length ? h("div", { class: "muted" }, "Da pagare: " + money(r2(toP.reduce((s, i) => s + Number(i.total), 0))) + " (" + toP.length + ")") : null));
+      toP.length ? h("div", { class: "muted" }, "Da pagare: " + money(r2(toP.reduce((s, i) => s + Number(i.total), 0))) + " (" + toP.length + ")") : null,
+      toC.length ? h("button", { class: "ghost", style: "margin-top:4px", onclick: (e) => { e.stopPropagation(); go({ t: "chase" }); } }, "✉️ Manda un sollecito") : null));
+    try {
+      const wl = chk(await sb.from("warranties").select("title,due_date,kind").eq("done", false).lte("due_date", isoDay(new Date(Date.now() + 30 * 864e5))).order("due_date").limit(4));
+      if (wl.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "warr" }) }, h("strong", {}, "Garanzie e manutenzioni in scadenza"), wl.map((w) => h("div", { class: "muted" }, w.title + " · " + new Date(w.due_date + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" })))));
+    } catch { /* sezione non ancora attiva */ }
     if (dl) nodes.push(h("div", { class: "card" }, h("div", { class: "when" }, "Scadenza fiscale · " + dl.date.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })), h("div", {}, dl.label)));
     let clocked = [];
     try { clocked = chk(await sb.from("time_entries").select("*").is("ended_at", null)); } catch { /* ore non disponibili */ }
@@ -1686,7 +2437,7 @@ async function homeView() {
     const cur = open1[0];
     nodes.push(h("div", { class: "card" },
       h("div", { class: "row" }, h("div", {}, h("strong", {}, cur ? "Sei in servizio" : "Non sei in servizio"), cur ? h("div", { class: "muted" }, "Dalle " + fTime(cur.started_at) + " (" + dur(Date.now() - D(cur.started_at)) + ")" + (cur.jobs?.title ? " · " + cur.jobs.title : "")) : null)),
-      h("button", { class: cur ? "primary out" : "primary", style: "margin-top:10px;height:48px", onclick: async () => { if (await attempt(async () => { chk(cur ? await sb.rpc("clock_out") : await sb.rpc("clock_in", { p_job: null })); })) render(); } }, cur ? "Timbra uscita" : "Timbra entrata")));
+      h("button", { class: cur ? "primary out" : "primary", style: "margin-top:10px;height:48px", onclick: async () => { if (await attempt(async () => { if (cur) await clockOut(); else await clockIn(null); })) render(); } }, cur ? "Timbra uscita" : "Timbra entrata")));
   }
   nodes.push(h("h2", {}, "Programma di oggi"), today.length ? today.map(jobCard) : h("p", {}, "Niente in programma: giornata libera."));
   if (next.length) nodes.push(h("h2", {}, "Nei prossimi giorni"), next.map(jobCard));
@@ -1757,15 +2508,21 @@ function weatherCard() {
 
 /* ---------- info app ---------- */
 const APP_NEWS = [
-  ["Lettura bolle", "Fotografi la bolla e l'app legge le righe (descrizione, quantità, unità) e le mette in una lista ordinata."],
-  ["Materiali del lavoro", "Le righe lette dalla bolla finiscono anche nella lista materiali del lavoro scelto."],
-  ["Archivio intelligente", "Legge fatture, bolle e PDF (anche scansionati), compila i dati e dà un nome standard: AAAA-MM-GG_Tipo_Controparte_N-Numero_ImportoEUR."],
-  ["Ricerca e filtri", "Cerchi per nome, tipo e anno; scarichi tutto in ZIP o CSV."],
-  ["Modifica dati documento", "Il titolare può correggere i dati letti."],
-  ["Ore dei dipendenti", "In Ufficio le ore di tutti, esportabili in CSV."],
-  ["Password dimenticata", "Recupero password dalla schermata di accesso."],
-  ["Team", "Rifiutati o rimossi con tasto Riattiva."],
-  ["Meteo in Home", "Meteo di oggi e dei prossimi giorni; si può cambiare città o usare la posizione."]
+  ["Rapportini di fine giornata", "Cosa si è fatto, con chi eri, materiale nostro o comprato (confrontato con le bolle) e commenti per chiarimenti. Visibili a tutti, nessun obbligo."],
+  ["Magazzino", "Elenco del materiale in sede, con + e −, e creazione dell'elenco da foto di etichette."],
+  ["Biblioteca tecnica", "Schede, manuali e istruzioni per centraline, orologi, termostati… cercabili anche per parole dentro il PDF."],
+  ["Schede impianto", "IP, accessi e note di ogni casa, collegate al cliente."],
+  ["Radio", "Ascolto in app con ricerca, preferiti, sezione solo musica e timer di spegnimento. Nessuna pubblicità nell'app."],
+  ["Firma del cliente e rapporto PDF", "A fine intervento il cliente firma sul telefono e si crea il PDF nei documenti del lavoro."],
+  ["Foto prima/dopo e checklist", "Foto etichettate prima e dopo; checklist da spuntare per tipo di impianto."],
+  ["Garanzie e manutenzioni", "Scadenze per cliente, con avviso in Home."],
+  ["Costo e guadagno per lavoro", "Ore, spese documentate e fatturato di ogni lavoro (titolare)."],
+  ["Solleciti", "Messaggi pronti per i clienti con fatture scadute (WhatsApp, email, copia)."],
+  ["Chilometri, ferie e permessi, bacheca", "Registro km con CSV, richieste di ferie approvate dal titolare, avvisi per tutti."],
+  ["Cerca ovunque e Novità", "Una ricerca unica su tutto e una pagina con cosa è successo dall'ultima volta."],
+  ["Assistente IA (facoltativo)", "Interruttore del titolare: legge meglio i documenti e risponde a domande. Si paga a consumo."],
+  ["Meteo in Home", "Meteo di oggi e dei prossimi giorni; si può cambiare città o usare la posizione."],
+  ["Lettura bolle e archivio intelligente", "Fotografi la bolla e l'app legge le righe e dà un nome standard ai file; ricerca, ZIP e CSV."]
 ];
 function infoView() {
   return [
@@ -1801,6 +2558,12 @@ async function teamView() {
   ];
 }
 
+/* ---------- offline ---------- */
+(() => {
+  const b = document.createElement("div"); b.id = "offl"; b.textContent = "Sei offline: l'app si apre ma i dati si vedono solo con internet."; document.body.appendChild(b);
+  const upd = () => { b.style.display = navigator.onLine ? "none" : "block"; };
+  window.addEventListener("online", upd); window.addEventListener("offline", upd); upd();
+})();
 /* ---------- avvio ---------- */
 sb.auth.onAuthStateChange((event, session) => {
   if (event === "PASSWORD_RECOVERY") { recovering = true; recoveryScreen(); return; }
