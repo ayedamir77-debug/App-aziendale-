@@ -33,8 +33,8 @@ button:disabled{opacity:.6}
 .card{background:#fff;border:1px solid #DDE2E6;border-radius:14px;padding:14px 16px;margin-bottom:12px}
 .tap{cursor:pointer}
 .row{display:flex;gap:10px;align-items:center;justify-content:space-between}
-.btns{display:flex;gap:10px;margin-top:12px}
-.btns button{flex:1;height:44px}
+.btns{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px}
+.btns button{flex:1 1 40%;height:44px}
 .deny{background:#fff;color:#14202B;border:1px solid #C9D0D6}
 .ok{background:#1B6A86;color:#fff}
 .note{background:#E3F0F5;border-radius:12px;padding:14px 16px;font-size:14px;line-height:1.4;margin-top:14px}
@@ -50,7 +50,7 @@ button:disabled{opacity:.6}
 .when{font-size:14px;font-weight:600;color:#1B6A86}
 .title{font-size:17px;font-weight:600;margin:6px 0 2px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #DDE2E6;display:flex;justify-content:space-around;padding:6px 4px calc(10px + env(safe-area-inset-bottom));z-index:5}
-.nav button{background:none;color:#4E5A66;height:46px;padding:0 6px;font-size:12px;flex:1;border-radius:8px}
+.nav button{background:none;color:#4E5A66;height:46px;padding:0 1px;font-size:10.5px;min-width:0;flex:1;border-radius:8px}
 .nav button.on{color:#1B6A86;background:#E3F0F5}
 .link{display:inline-block;color:#1B6A86;font-weight:600;text-decoration:none;padding:8px 0;margin-right:16px}
 .cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;margin-bottom:8px}
@@ -74,6 +74,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = "https://umnofttnykxbxfrnbwtw.supabase.co";
 const SUPABASE_KEY = "sb_publishable_fuMVp_I1eCypQGGZ9zLhVw_nw8GEvMz";
+let recovering = /type=recovery/.test(location.hash);   // arrivo dal link "password dimenticata"
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
 const root = document.getElementById("app");
 
@@ -110,7 +111,130 @@ const telUrl = (p) => "tel:" + String(p).replace(/[^\d+]/g, "");
 const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; };
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 const STATUS = { todo: "Da fare", doing: "In corso", done: "Completato" };
-const KINDS = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", altro: "Altro" };
+/* NAME-START */
+const KINDS = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformità", contratto: "Contratto", altro: "Altro" };
+const KIND_FILE = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformita", contratto: "Contratto", altro: "Documento" };
+function slugName(s, max, upper) {
+  const w = String(s == null ? "" : s).replace(/([A-Za-z])\./g, "$1").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/&/g, " e ").replace(/[^A-Za-z0-9]+/g, " ").trim().split(/\s+/).filter(Boolean);
+  return w.map((x) => (upper ? x.toUpperCase() : x[0].toUpperCase() + x.slice(1).toLowerCase())).join("-").slice(0, max).replace(/-+$/, "");
+}
+/* nome standard: AAAA-MM-GG_Tipo_Controparte_N-Numero_Importo.ext  (le parti mancanti si saltano) */
+function stdName(m, ext) {
+  const parts = [m.date || "0000-00-00", KIND_FILE[m.kind] || "Documento"];
+  const party = slugName(m.party, 28); if (party) parts.push(party);
+  if (m.kind === "foto") { if (m.time) parts.push(m.time); }
+  else {
+    const no = slugName(m.number, 16, true); if (no) parts.push("N-" + no);
+    const a = Number(m.amount); if (isFinite(a) && a > 0) parts.push(a.toFixed(2).replace(".", "-") + "EUR");
+  }
+  return parts.join("_") + "." + String(ext || "pdf").toLowerCase();
+}
+/* NAME-END */
+
+/* PARSE-START */
+const MESI = { gennaio: 1, febbraio: 2, marzo: 3, aprile: 4, maggio: 5, giugno: 6, luglio: 7, agosto: 8, settembre: 9, ottobre: 10, novembre: 11, dicembre: 12, gen: 1, feb: 2, mar: 3, apr: 4, mag: 5, giu: 6, lug: 7, ago: 8, set: 9, ott: 10, nov: 11, dic: 12 };
+const normTxt = (s) => String(s == null ? "" : s).normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+function amountsIn(line) {
+  const out = []; let m;
+  const re = /(?:^|[^\d.,])(\d{1,3}(?:[.,]\d{3})+|\d+),(\d{2})(?!\d)/g;
+  while ((m = re.exec(line))) out.push(parseFloat(m[1].replace(/[.,]/g, "") + "." + m[2]));
+  if (!out.length) { const re2 = /(?:^|[^\d.,])(\d{1,6})\.(\d{2})(?![\d.])/g; while ((m = re2.exec(line))) out.push(parseFloat(m[1] + "." + m[2])); }
+  return out;
+}
+function datesIn(text, maxYear) {
+  const res = [], push = (d, mo, y, idx) => {
+    if (y < 100) y += 2000;
+    const dt = new Date(y, mo - 1, d);
+    if (y < 2000 || y > maxYear || dt.getFullYear() !== y || dt.getMonth() !== mo - 1 || dt.getDate() !== d) return;
+    res.push({ iso: y + "-" + String(mo).padStart(2, "0") + "-" + String(d).padStart(2, "0"), ctx: text.slice(Math.max(0, idx - 32), idx).toLowerCase() });
+  };
+  let m;
+  const re = /(?:^|[^\d])(\d{1,2})\s?[\/\-.]\s?(\d{1,2})\s?[\/\-.]\s?(\d{4}|\d{2})(?!\d)/g;
+  while ((m = re.exec(text))) push(+m[1], +m[2], +m[3], m.index);
+  const re2 = /(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre|gen|feb|mar|apr|mag|giu|lug|ago|set|ott|nov|dic)\.?\s+(\d{4})/gi;
+  while ((m = re2.exec(text))) push(+m[1], MESI[m[2].toLowerCase()], +m[3], m.index);
+  return res;
+}
+const COMPANY_RE = /(\bs\.?\s?r\.?\s?l\.?s?\b|\bs\.?\s?p\.?\s?a\.?\b|\bs\.?\s?n\.?\s?c\.?\b|\bs\.?\s?a\.?\s?s\.?\b|\bsoc(?:ieta|\.)|\bcoop|\bditta\b|\bimpresa\b|\bstudio\b|\bf\.?lli\b|\bfratelli\b|& ?c\b)/i;
+const BAD_HEAD = /fattura|documento|\bddt\b|trasporto|preventivo|offerta|pagina|\bpag\b|www\.|@|\btel\b|\bfax\b|\bcell\b|p\.? ?iva|partita|\bc\.? ?f\b|\bcod\b|codice|iban|\bvia\b|viale|piazza|corso|\bcap\b|\bdata\b|numero|spett|destinatario|cliente|totale|importo|conformit|scontrino|ricevuta|contratto|\bn\.|nota di/i;
+function cleanParty(v) {
+  return String(v || "").replace(/\s*[|\\].*$/, "").replace(/\s{2,}/g, " ").replace(/^(spett(?:\.|abile)?\.?\s*(?:le)?|egr\.?|sig\.?|sigg\.?)\s+/i, "").replace(/\b(via|viale|piazza|corso|p\.?\s?iva|partita|c\.?\s?f\.?|tel|cell|cap)\b.*$/i, "").replace(/[|:;,.\-\s]+$/, "").replace(/^[|:;,.\-\s]+/, "").slice(0, 40).trim();
+}
+function parseDoc(raw, ctx) {
+  ctx = ctx || {};
+  const text = String(raw || "").replace(/\r/g, "").replace(/[ \t]+/g, " ");
+  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
+  const out = { kind: "altro", date: null, number: "", party: "", amount: null, rate: null, issuedByOwn: false };
+  const ownN = normTxt(ctx.own && ctx.own.name);
+  const isOwn = (s) => { const n = normTxt(s); return !!ownN && n.length > 3 && (n.includes(ownN) || ownN.includes(n)); };
+  const low = text.toLowerCase(), head = lines.slice(0, 12).join("\n").toLowerCase();
+  out.issuedByOwn = lines.slice(0, 3).some(isOwn);
+  /* tipo */
+  const KW = {
+    conformita: /dichiarazione di conformit|d\.? ?m\.? ?37|37\/0?8/g,
+    bolla: /documento di trasporto|\bddt\b|d\.d\.t|\bbolla\b|causale del trasporto|aspetto esteriore/g,
+    preventivo: /\bpreventivo\b|offerta economica|\boffert[ae]\b/g,
+    fattura: /\bfattura\b|\bfatt\.\s?n|\binvoice\b|nota di credito|nota di debito/g,
+    scontrino: /scontrino|documento commerciale|ricevuta fiscale|\bresto\b/g,
+    contratto: /\bcontratto\b|scrittura privata/g
+  };
+  let best = 0;
+  for (const k of Object.keys(KW)) {
+    const c = Math.min(3, (low.match(KW[k]) || []).length) + ((head.match(KW[k]) || []).length ? 3 : 0);
+    if (c > best) { best = c; out.kind = k; }
+  }
+  /* data */
+  const ds = datesIn(text, (ctx.today || new Date()).getFullYear() + 1);
+  const bad = /scadenz|nascit|pagament|consegn|valid|entro|termin|scad/, good = /dat[ao]|\bdel\b|emission|document|fattura|ddt/;
+  const dPick = ds.find((d) => good.test(d.ctx) && !bad.test(d.ctx)) || ds.find((d) => !bad.test(d.ctx)) || ds[0];
+  if (dPick) out.date = dPick.iso;
+  /* numero */
+  const bannedNum = (s) => /^\d{11,}$/.test(s) || /^\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}$/.test(s) || !/\d/.test(s);
+  const NUMS = [
+    /(?:fattura|fatt|invoice|ddt|d\.d\.t|bolla|preventivo|offerta|ordine|ricevuta|documento|scontrino)[^\n\d]{0,40}?(?:n\.?|nr\.?|n°|nº|num\.?|numero)\s*[:.]?\s*([A-Z]{0,4}[\s\-]?\d[\w\/\-]{0,14})/i,
+    /(?:^|\s)(?:n\.|nr\.?|n°|nº|numero|num\.)\s*(?:documento|fattura|ddt|preventivo)?\s*[:.]?\s*([A-Z]{0,4}\d[\w\/\-]{0,14})/i
+  ];
+  if (out.kind !== "conformita") outer: for (const re of NUMS) for (const l of lines) {
+    const m = re.exec(l); if (!m) continue;
+    const v = m[1].replace(/\s+/g, "").replace(/[\/\-.]+$/, "");
+    if (v && !bannedNum(v)) { out.number = v.slice(0, 16); break outer; }
+  }
+  /* importo totale */
+  const strong = /total[ei]?\s*(?:documento|fattura|da pagare|complessivo|generale|dovuto|eur|euro)|importo\s*total|netto\s*a\s*pagare|da\s*pagare|total[ei]?\s*€/i;
+  const weak = /^\W*total[ei]?\b/i, notTot = /imponibile|iva|imposta|parziale|sconto|merce|righe|articol|pezzi/i;
+  const pickMax = (pred) => {
+    let mx = null;
+    lines.forEach((l, i) => { if (!pred(l)) return; let a = amountsIn(l); if (!a.length && lines[i + 1]) a = amountsIn(lines[i + 1]); a.forEach((v) => { if (mx == null || v > mx) mx = v; }); });
+    return mx;
+  };
+  let amt = pickMax((l) => strong.test(l) && !/imponibile|\biva\b/i.test(l));
+  if (amt == null) amt = pickMax((l) => weak.test(l) && !notTot.test(l));
+  if (amt == null) { let mx = null; lines.forEach((l) => amountsIn(l).forEach((v) => { if (v < 1e7 && (mx == null || v > mx)) mx = v; })); amt = mx; }
+  if (amt != null && amt > 0) out.amount = Math.round(amt * 100) / 100;
+  /* aliquota IVA */
+  const cnt = {}; (text.match(/(?:^|[^\d])(\d{1,2})\s?%/g) || []).forEach((s) => { const n = +s.replace(/\D/g, ""); if ([4, 5, 10, 22].includes(n)) cnt[n] = (cnt[n] || 0) + 1; });
+  const rk = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a])[0]; if (rk) out.rate = +rk;
+  /* controparte */
+  const clients = (ctx.clients || []).map((c) => ({ c, n: normTxt(c) })).filter((x) => x.n.length >= 3).sort((a, b) => b.n.length - a.n.length);
+  const nt = " " + normTxt(text) + " ";
+  const known = clients.find((x) => nt.includes(" " + x.n + " "));
+  if (known && !isOwn(known.c)) out.party = known.c;
+  if (!out.party) for (let i = 0; i < lines.length; i++) {
+    const m = /^(?:spett(?:\.|abile)?\.?\s*(?:le)?|destinatario|intestatario|cliente|committente|fornitore|ragione sociale|denominazione)\b[\s:.\-]*(.*)$/i.exec(lines[i]);
+    if (!m) continue;
+    let v = m[1].trim(); if (!v && lines[i + 1]) v = lines[i + 1];
+    v = cleanParty(v);
+    if (v.length >= 3 && !isOwn(v) && !/^(indirizzo|via|data|p\.?iva|codice|partita|n\.)/i.test(v)) { out.party = v; break; }
+  }
+  if (!out.party) {
+    const cand = lines.slice(0, 10).filter((l) => l.length >= 3 && l.length <= 60 && !isOwn(l) && !BAD_HEAD.test(l) && (l.replace(/[^\d]/g, "").length / l.length) < 0.4);
+    const co1 = cand.find((l) => COMPANY_RE.test(l)) || cand.find((l) => { const L = l.replace(/[^A-Za-zÀ-ÿ]/g, ""); return L.length >= 4 && L === L.toUpperCase(); }) || cand[0];
+    if (co1) out.party = cleanParty(co1);
+  }
+  return out;
+}
+/* PARSE-END */
+
 
 function translate(msg) {
   const m = String(msg || "");
@@ -130,7 +254,7 @@ async function attempt(fn) {
 const chk = (res) => { if (res.error) throw res.error; return res.data; };
 
 /* ---------- stato e navigazione ---------- */
-const S = { p: null, tab: "jobs", sub: null, stack: [], month: new Date(), day: new Date(), jobFilter: "open", docKind: "all", team: [], draft: {} };
+const S = { off: "home", per: "q", invF: "all", p: null, tab: "home", sub: null, stack: [], month: new Date(), day: new Date(), jobFilter: "open", docKind: "all", docYear: "all", dq: "", hm: null, team: [], draft: {} };
 const OWNER = () => S.p && S.p.role === "owner";
 const nameOf = (id) => (S.team.find((t) => t.id === id) || {}).full_name || "";
 
@@ -146,14 +270,17 @@ const logout = () => sb.auth.signOut();
 
 /* ---------- accesso e registrazione ---------- */
 let mode = "login";
-const form = { name: "", company: "", email: "", code: "" };
-function saveForm() { for (const k of ["name", "company", "email", "code"]) { const el = $("f_" + k); if (el) form[k] = el.value; } }
+const form = { name: "", company: "", email: "", code: "", regime: "" };
+function saveForm() { for (const k of ["name", "company", "email", "code", "regime"]) { const el = $("f_" + k); if (el) form[k] = el.value; } }
 
 function authScreen(error, info) {
   const tab = (m, label) => h("button", { class: "tab" + (mode === m ? " on" : ""), onclick: () => { saveForm(); mode = m; authScreen(); } }, label);
   const fields = [];
   if (mode !== "login") fields.push(h("label", { for: "f_name" }, "Nome e cognome"), h("input", { id: "f_name", autocomplete: "name", value: form.name }));
-  if (mode === "owner") fields.push(h("label", { for: "f_company" }, "Nome dell'azienda"), h("input", { id: "f_company", value: form.company }));
+  if (mode === "owner") fields.push(h("label", { for: "f_company" }, "Nome dell'azienda"), h("input", { id: "f_company", value: form.company }),
+    h("label", { for: "f_regime" }, "Regime fiscale"),
+    h("select", { id: "f_regime", value: form.regime }, h("option", { value: "" }, "Scegli…"), [["forfettario", "Forfettario (senza IVA)"], ["semplificato", "Semplificato (con IVA)"], ["ordinario", "Ordinario (con IVA)"]].map(([k, l]) => h("option", { value: k }, l))),
+    h("p", { class: "muted", style: "margin-top:6px" }, "Non lo sai? Chiedilo al commercialista. Potrai cambiarlo dopo."));
   fields.push(
     h("label", { for: "f_email" }, "Email"), h("input", { id: "f_email", type: "email", autocomplete: "email", value: form.email }),
     h("label", { for: "f_pass" }, "Password"), h("input", { id: "f_pass", type: "password", autocomplete: mode === "login" ? "current-password" : "new-password" })
@@ -169,15 +296,22 @@ function authScreen(error, info) {
     error ? h("div", { class: "err" }, error) : null,
     info ? h("div", { class: "note" }, info) : null,
     mode === "employee" ? h("div", { class: "note" }, "Il datore di lavoro dovrà approvare la richiesta prima che tu possa entrare.") : null,
+    mode === "login" ? h("button", { class: "ghost", style: "margin-top:4px", onclick: async () => {
+      saveForm(); const em = ($("f_email").value || "").trim();
+      if (!em) { authScreen("Scrivi la tua email qui sopra, poi premi «Password dimenticata?»."); return; }
+      const { error } = await sb.auth.resetPasswordForEmail(em, { redirectTo: location.origin + location.pathname });
+      if (error) authScreen(translate(error.message)); else authScreen(null, "Se l'email è registrata, ti ho mandato un link per scegliere una nuova password. Controlla anche lo spam.");
+    } }, "Password dimenticata?") : null,
     h("button", { class: "primary", onclick: async (e) => {
       e.target.disabled = true; saveForm();
       const email = $("f_email").value.trim(), password = $("f_pass").value;
       try {
         if (mode === "login") { const { error } = await sb.auth.signInWithPassword({ email, password }); if (error) throw error; return; }
         const data = { full_name: form.name.trim() };
-        if (mode === "owner") data.company_name = form.company.trim(); else data.join_code = form.code.trim().toUpperCase();
+        if (mode === "owner") { data.company_name = form.company.trim(); data.tax_regime = form.regime; } else data.join_code = form.code.trim().toUpperCase();
         if (!data.full_name) throw new Error("Inserisci nome e cognome");
         if (mode === "owner" && !data.company_name) throw new Error("Inserisci il nome dell'azienda");
+        if (mode === "owner" && !data.tax_regime) throw new Error("Scegli il regime fiscale");
         if (mode === "employee" && !data.join_code) throw new Error("Inserisci il codice azienda");
         const { data: res, error } = await sb.auth.signUp({ email, password, options: { data, emailRedirectTo: location.origin + location.pathname } });
         if (error) throw error;
@@ -188,11 +322,24 @@ function authScreen(error, info) {
 }
 
 /* ---------- avvio ---------- */
+function recoveryScreen(err) {
+  show(h("div", { class: "logo" }), h("h1", {}, "Nuova password"), h("p", {}, "Scegli la nuova password per il tuo account."),
+    h("label", { for: "np1" }, "Nuova password"), h("input", { id: "np1", type: "password", autocomplete: "new-password" }),
+    err ? h("div", { class: "err" }, err) : null,
+    h("button", { class: "primary", onclick: async (e) => {
+      const p1 = $("np1").value; if (p1.length < 6) { recoveryScreen("La password deve avere almeno 6 caratteri."); return; }
+      e.target.disabled = true;
+      const { error } = await sb.auth.updateUser({ password: p1 });
+      if (error) { recoveryScreen(translate(error.message)); return; }
+      recovering = false; history.replaceState({}, "", location.pathname); boot();
+    } }, "Salva password"));
+}
 async function boot() {
   try {
+    if (recovering) { const { data: { session: s0 } } = await sb.auth.getSession(); if (s0) return recoveryScreen(); recovering = false; }
     const { data: { session } } = await sb.auth.getSession();
     if (!session) { S.p = null; return authScreen(); }
-    const { data, error } = await sb.from("profiles").select("*, companies(name, join_code)").eq("id", session.user.id).maybeSingle();
+    const { data, error } = await sb.from("profiles").select("*, companies(*)").eq("id", session.user.id).maybeSingle();
     if (error) throw error;
     if (!data) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
     S.p = data;
@@ -231,13 +378,20 @@ async function render() {
       else if (sub.t === "client") nodes = await clientView(sub.id);
       else if (sub.t === "clientForm") nodes = await clientForm(sub.id);
       else if (sub.t === "docForm") nodes = await docForm(sub.job);
+      else if (sub.t === "docEdit") nodes = await docEditForm(sub.id);
+      else if (sub.t === "quote") nodes = await quoteView(sub.id);
+      else if (sub.t === "quoteForm") nodes = await quoteForm(sub.id);
+      else if (sub.t === "invoiceForm") nodes = await invoiceForm(sub.id);
+      else if (sub.t === "expenseForm") nodes = await expenseForm(sub.id);
     } else {
-      if (S.tab === "jobs") nodes = await jobsView();
+      if (S.tab === "home") nodes = await homeView();
+      else if (S.tab === "jobs") nodes = await jobsView();
       else if (S.tab === "cal") nodes = await calView();
       else if (S.tab === "clients") nodes = await clientsView();
       else if (S.tab === "docs") nodes = await docsView();
       else if (S.tab === "team") nodes = await teamView();
       else if (S.tab === "hours") nodes = await hoursView();
+      else if (S.tab === "office") nodes = await officeView();
     }
     if (my !== renderId) return;
     show(topbar(!!sub), nodes, sub ? null : navbar());
@@ -255,8 +409,8 @@ function topbar(isSub) {
 }
 function navbar() {
   const items = OWNER()
-    ? [["jobs", "Lavori"], ["cal", "Calendario"], ["clients", "Clienti"], ["docs", "Documenti"], ["team", "Team"]]
-    : [["jobs", "Lavori"], ["cal", "Calendario"], ["docs", "Documenti"], ["hours", "Ore"]];
+    ? [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["clients", "Clienti"], ["docs", "Documenti"], ["office", "Ufficio"], ["team", "Team"]]
+    : [["home", "Home"], ["jobs", "Lavori"], ["cal", "Agenda"], ["docs", "Documenti"], ["hours", "Ore"]];
   return h("div", { class: "nav" }, items.map(([k, l]) => h("button", { class: S.tab === k ? "on" : "", onclick: () => setTab(k) }, l)));
 }
 const badge = (s) => h("span", { class: "badge b-" + s }, STATUS[s]);
@@ -292,6 +446,9 @@ async function jobView(id) {
     sb.from("documents").select("*, profiles(full_name)").eq("job_id", id).order("created_at", { ascending: false }).then(chk)
   ]);
   const names = (j.job_assignments || []).map((a) => nameOf(a.user_id)).filter(Boolean);
+  const photos = docs.filter((d) => d.kind === "foto" && /^image\//.test(d.mime || "")), others = docs.filter((d) => !photos.includes(d));
+  const urls = {};
+  if (photos.length) { const r = await sb.storage.from("docs").createSignedUrls(photos.map((d) => d.file_path), 3600); (r.data || []).forEach((x) => { if (x.signedUrl) urls[x.path] = x.signedUrl; }); }
   const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
   return [
     h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, j.title), badge(j.status)),
@@ -326,9 +483,11 @@ async function jobView(id) {
         const q = $("mq").value; chk(await sb.from("job_materials").insert({ job_id: j.id, company_id: j.company_id, description, quantity: q === "" ? null : Number(q), unit: $("mu").value.trim() || null, added_by: S.p.id }));
       }) }, "Aggiungi")),
 
-    h("h2", {}, "Documenti e foto"),
-    docs.length ? docs.map((d) => docItem(d, false)) : h("p", {}, "Nessun documento collegato."),
-    h("button", { class: "secondary", style: "width:100%", onclick: () => go({ t: "docForm", job: j.id }) }, "+ Aggiungi foto o documento"),
+    h("h2", {}, "Foto del lavoro"),
+    photoSection(j, photos, urls),
+    h("h2", {}, "Documenti"),
+    others.length ? others.map((d) => docItem(d, false)) : h("p", {}, "Nessun documento collegato."),
+    h("button", { class: "secondary", style: "width:100%", onclick: () => go({ t: "docForm", job: j.id }) }, "+ Scansiona o aggiungi documento"),
 
     OWNER() ? [
       h("button", { class: "secondary", style: "width:100%;margin-top:22px", onclick: () => go({ t: "jobForm", id: j.id }) }, "Modifica lavoro"),
@@ -375,6 +534,49 @@ async function jobForm(id) {
       if (ok) { S.jobFilter = "open"; back(); } else e.target.disabled = false;
     } }, "Salva lavoro")
   ];
+}
+
+/* ---------- foto dei lavori ---------- */
+function photoSection(j, photos, urls) {
+  const status = h("p", { class: "muted" });
+  const addPhotos = async (files) => {
+    const list = [...files]; if (!list.length) return;
+    let okc = 0;
+    for (let i = 0; i < list.length; i++) {
+      status.textContent = "Carico foto " + (i + 1) + " di " + list.length + "…";
+      try { await uploadDoc(list[i], "foto", null, j.id, { party: j.title || "" }); okc++; } catch (e) { alert("Foto " + (i + 1) + ": " + translate(e && e.message ? e.message : e)); }
+    }
+    status.textContent = okc ? okc + (okc === 1 ? " foto caricata" : " foto caricate") : "";
+    if (okc) render();
+  };
+  const cam = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: async (e) => { const f = [...e.target.files]; e.target.value = ""; await addPhotos(f); } });
+  const gal = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: async (e) => { const f = [...e.target.files]; e.target.value = ""; await addPhotos(f); } });
+  return [
+    photos.length ? h("div", { style: "display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px" }, photos.map((d) => urls[d.file_path]
+      ? h("button", { style: "padding:0;height:auto;aspect-ratio:1;background:#EEF0F2;border:1px solid #DDE2E6;overflow:hidden", "aria-label": "Apri foto", onclick: () => openPhoto(d, urls[d.file_path]) },
+          h("img", { src: urls[d.file_path], alt: d.title || "Foto", loading: "lazy", style: "width:100%;height:100%;object-fit:cover;display:block" }))
+      : null)) : h("p", {}, "Nessuna foto per ora."),
+    h("div", { class: "btns", style: "margin-top:0" }, h("button", { class: "ok", onclick: () => cam.click() }, "📷 Scatta foto"), h("button", { class: "secondary", onclick: () => gal.click() }, "🖼️ Dalla galleria")),
+    status, cam, gal,
+    photos.length > 1 ? h("button", { class: "ghost", onclick: async (e) => { e.target.disabled = true; await attempt(() => zipDocs(photos, () => "", "Foto_" + (slugName(j.title, 30) || "lavoro") + ".zip", (t) => { status.textContent = t; })); status.textContent = ""; e.target.disabled = false; } }, "⬇ Scarica tutte le foto (ZIP)") : null,
+    h("p", { class: "muted", style: "margin-top:0" }, "Le foto vengono ridotte automaticamente prima del caricamento.")
+  ];
+}
+function openPhoto(d, url) {
+  const close = () => ov.remove();
+  const canDel = OWNER() || d.uploaded_by === S.p.id;
+  const ov = h("div", { style: "position:fixed;inset:0;background:rgba(10,15,20,.94);z-index:20;display:flex;flex-direction:column;padding:12px" },
+    h("div", { class: "row", style: "margin-bottom:10px" },
+      h("div", { style: "color:#fff;font-size:14px" }, [d.profiles?.full_name, fDate(d.created_at)].filter(Boolean).join(" · ")),
+      h("button", { style: "background:#fff;color:#14202B;height:40px", onclick: close }, "Chiudi")),
+    h("div", { style: "flex:1;min-height:0;display:flex;align-items:center;justify-content:center" }, h("img", { src: url, alt: d.title || "Foto", style: "max-width:100%;max-height:100%;object-fit:contain" })),
+    h("div", { class: "btns" },
+      h("a", { class: "link", style: "color:#fff;flex:1;text-align:center;line-height:44px", href: url, target: "_blank", rel: "noopener" }, "Apri intera"),
+      canDel ? h("button", { class: "deny", style: "color:#A32121", onclick: async () => {
+        if (!confirm("Eliminare questa foto?")) return;
+        if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); })) { close(); render(); }
+      } }, "Elimina") : null));
+  document.body.appendChild(ov);
 }
 
 /* ---------- calendario ---------- */
@@ -464,43 +666,232 @@ async function openDoc(d) {
   if (error || !data) { if (w) w.close(); alert("Impossibile aprire il file."); return; }
   if (w) w.location.href = data.signedUrl; else location.href = data.signedUrl;
 }
+/* ---------- lettura documenti (OCR), nomi standard, ZIP ---------- */
+const TESS_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
+const PDFJS_SRC = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+const PDFJS_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+const loadedJs = {};
+function loadScript(src) {
+  return loadedJs[src] || (loadedJs[src] = new Promise((res, rej) => {
+    const s = document.createElement("script"); s.src = src; s.onload = () => res();
+    s.onerror = () => { delete loadedJs[src]; rej(new Error("Non riesco a caricare il lettore di documenti: serve la connessione a internet.")); };
+    document.head.appendChild(s);
+  }));
+}
+let ocrP = null;
+function getOcr(say) {
+  if (!ocrP) {
+    say("Preparo il lettore di testo (solo la prima volta, può richiedere un minuto)…");
+    ocrP = loadScript(TESS_SRC).then(() => window.Tesseract.createWorker("ita")).catch((e) => { ocrP = null; throw e; });
+  }
+  return ocrP;
+}
+async function ocrCanvas(cv, say) { const w = await getOcr(say); const r = await w.recognize(cv); return (r && r.data && r.data.text) || ""; }
+async function pdfLib() {
+  await loadScript(PDFJS_SRC);
+  const L = window.pdfjsLib;
+  if (!L.GlobalWorkerOptions.workerSrc) { const r = await fetch(PDFJS_WORKER); L.GlobalWorkerOptions.workerSrc = URL.createObjectURL(await r.blob()); }
+  return L;
+}
+async function pdfRead(file, say) {
+  const L = await pdfLib(), pdf = await L.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+  const n = Math.min(pdf.numPages, 6); let text = "";
+  for (let i = 1; i <= n; i++) {
+    const tc = await (await pdf.getPage(i)).getTextContent(); let lastY = null, line = "";
+    for (const it of tc.items) {
+      const y = it.transform ? Math.round(it.transform[5]) : null;
+      if (lastY !== null && y !== null && Math.abs(y - lastY) > 3) { text += line + "\n"; line = ""; }
+      line += (line ? " " : "") + it.str; if (y !== null) lastY = y;
+    }
+    text += line + "\n";
+  }
+  if (text.replace(/\s/g, "").length >= 60) return text;
+  const idx = [...new Set([1, Math.min(2, pdf.numPages), pdf.numPages])]; text = "";   // PDF scansionato: lo leggo come immagine
+  for (let k = 0; k < idx.length; k++) {
+    say("Leggo la pagina " + (k + 1) + " di " + idx.length + "…");
+    const pg = await pdf.getPage(idx[k]), v0 = pg.getViewport({ scale: 1 }), sc = 2200 / Math.max(v0.width, v0.height), vp = pg.getViewport({ scale: sc });
+    const cv = document.createElement("canvas"); cv.width = Math.round(vp.width); cv.height = Math.round(vp.height);
+    await pg.render({ canvasContext: cv.getContext("2d"), viewport: vp }).promise;
+    text += (await ocrCanvas(cv, say)) + "\n";
+  }
+  return text;
+}
+async function readDocument(src, say) {
+  if (src.pages && src.pages.length) {
+    const n = src.pages.length, idx = [...new Set([0, Math.min(1, n - 1), n - 1])]; let text = "";
+    for (let k = 0; k < idx.length; k++) {
+      say("Leggo la pagina " + (k + 1) + " di " + idx.length + "…");
+      const p = src.pages[idx[k]], cv = await renderPage(p.bmp, p.rot, "doc", 2200);
+      text += (await ocrCanvas(cv, say)) + "\n";
+    }
+    return text;
+  }
+  const f = src.file; if (!f) throw new Error("Nessun file da leggere");
+  if (f.type === "application/pdf" || /\.pdf$/i.test(f.name)) return pdfRead(f, say);
+  say("Leggo il documento…");
+  return ocrCanvas(await renderPage(await createImageBitmap(f), 0, "doc", 2200), say);
+}
+async function uniqueName(name, exceptId) {
+  const dot = name.lastIndexOf("."), stem = name.slice(0, dot), ext = name.slice(dot);
+  let q = sb.from("documents").select("id,file_name").ilike("file_name", stem.replace(/[\\%_]/g, "\\$&") + "%");
+  if (exceptId) q = q.neq("id", exceptId);
+  const taken = new Set(chk(await q).map((x) => x.file_name));
+  if (!taken.has(name)) return name;
+  for (let i = 2; i < 500; i++) { const n = stem + "_" + i + ext; if (!taken.has(n)) return n; }
+  return stem + "_" + Date.now() + ext;
+}
+const hhmm = (d) => String(d.getHours()).padStart(2, "0") + String(d.getMinutes()).padStart(2, "0");
+
+/* ZIP semplice (senza compressione: i PDF e le foto sono già compressi) */
+const CRC_T = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+function crc32(u8) { let c = 0xFFFFFFFF; for (let i = 0; i < u8.length; i++) c = CRC_T[(c ^ u8[i]) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; }
+function buildZip(files) {
+  const enc = new TextEncoder(), parts = [], central = []; let off = 0;
+  const n0 = new Date(), tm = ((n0.getHours() << 11) | (n0.getMinutes() << 5) | (n0.getSeconds() >> 1)) & 0xFFFF, dt = (((n0.getFullYear() - 1980) << 9) | ((n0.getMonth() + 1) << 5) | n0.getDate()) & 0xFFFF;
+  for (const f of files) {
+    const nm = enc.encode(f.name), crc = crc32(f.bytes), sz = f.bytes.length;
+    const lh = new DataView(new ArrayBuffer(30));
+    lh.setUint32(0, 0x04034b50, true); lh.setUint16(4, 20, true); lh.setUint16(6, 0x0800, true); lh.setUint16(8, 0, true); lh.setUint16(10, tm, true); lh.setUint16(12, dt, true);
+    lh.setUint32(14, crc, true); lh.setUint32(18, sz, true); lh.setUint32(22, sz, true); lh.setUint16(26, nm.length, true); lh.setUint16(28, 0, true);
+    parts.push(new Uint8Array(lh.buffer), nm, f.bytes);
+    const ch = new DataView(new ArrayBuffer(46));
+    ch.setUint32(0, 0x02014b50, true); ch.setUint16(4, 20, true); ch.setUint16(6, 20, true); ch.setUint16(8, 0x0800, true); ch.setUint16(10, 0, true); ch.setUint16(12, tm, true); ch.setUint16(14, dt, true);
+    ch.setUint32(16, crc, true); ch.setUint32(20, sz, true); ch.setUint32(24, sz, true); ch.setUint16(28, nm.length, true); ch.setUint32(42, off, true);
+    central.push(new Uint8Array(ch.buffer), nm);
+    off += 30 + nm.length + sz;
+  }
+  const csize = central.reduce((s, b) => s + b.length, 0), end = new DataView(new ArrayBuffer(22));
+  end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csize, true); end.setUint32(16, off, true);
+  return new Blob([...parts, ...central, new Uint8Array(end.buffer)], { type: "application/zip" });
+}
+async function zipDocs(docs, folderOf, zipName, say) {
+  const files = [], used = new Set(); let total = 0;
+  for (let i = 0; i < docs.length; i++) {
+    say("Preparo il file " + (i + 1) + " di " + docs.length + "…");
+    const r = await sb.storage.from("docs").download(docs[i].file_path); if (r.error) throw r.error;
+    const bytes = new Uint8Array(await r.data.arrayBuffer()); total += bytes.length;
+    if (total > 250 * 1048576) throw new Error("Troppi file insieme (oltre 250 MB): restringi con i filtri (anno o tipo).");
+    const base = docs[i].file_name || docs[i].id; let nm = folderOf(docs[i]) + base, k = 2;
+    while (used.has(nm)) nm = folderOf(docs[i]) + base.replace(/(\.[^.]*)?$/, "_" + k++ + "$1");
+    used.add(nm); files.push({ name: nm, bytes });
+  }
+  if (!files.length) throw new Error("Nessun file da scaricare");
+  downloadBlob(buildZip(files), zipName);
+}
+const MB = (n) => (n / 1048576).toLocaleString("it-IT", { maximumFractionDigits: 1 }) + " MB";
+
+
 function docItem(d, showJob) {
-  const meta = [KINDS[d.kind], d.doc_date ? D(d.doc_date).toLocaleDateString("it-IT") : fDate(d.created_at), d.amount != null ? money(d.amount) : null].filter(Boolean).join(" · ");
+  const meta = [KINDS[d.kind], d.counterparty, d.doc_date ? D(d.doc_date).toLocaleDateString("it-IT") : fDate(d.created_at), d.doc_number ? "N. " + d.doc_number : null, d.amount != null ? money(d.amount) : null].filter(Boolean).join(" · ");
   const who = OWNER() && d.profiles?.full_name ? "Caricato da " + d.profiles.full_name : "";
+  const mine = OWNER() || d.uploaded_by === S.p.id;
   return h("div", { class: "card" },
-    h("div", { class: "row" }, h("div", {}, h("div", { class: "title", style: "margin-top:0" }, d.title || d.file_name || "Documento"), h("div", { class: "muted" }, meta)),
+    h("div", { class: "row" }, h("div", { style: "min-width:0" }, h("div", { class: "title", style: "margin-top:0;word-break:break-all" }, d.title || d.file_name || "Documento"), h("div", { class: "muted" }, meta)),
       d.kind === "fattura" ? h("span", { class: "badge " + (d.paid ? "b-done" : "b-doing") }, d.paid ? "Pagata" : "Da pagare") : null),
     showJob && d.jobs?.title ? h("div", { class: "muted" }, "Lavoro: " + d.jobs.title) : null,
     who ? h("div", { class: "muted" }, who) : null,
     h("div", { class: "btns" },
       h("button", { class: "secondary", onclick: () => openDoc(d) }, "Apri"),
+      OWNER() && d.kind !== "foto" ? h("button", { class: "secondary", onclick: () => go({ t: "docEdit", id: d.id }) }, "Modifica dati") : null,
       OWNER() && d.kind === "fattura" ? h("button", { class: "deny", onclick: async () => { if (await attempt(async () => { chk(await sb.from("documents").update({ paid: !d.paid }).eq("id", d.id)); })) render(); } }, d.paid ? "Segna da pagare" : "Segna pagata") : null,
-      (OWNER() || d.uploaded_by === S.p.id) ? h("button", { class: "deny", onclick: async () => {
+      mine ? h("button", { class: "deny", onclick: async () => {
         if (!confirm("Eliminare questo documento?")) return;
         if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); })) render();
       } }, "Elimina") : null));
 }
+const docYear = (d) => String(d.doc_date || d.created_at || "").slice(0, 4);
 async function docsView() {
-  const all = chk(await sb.from("documents").select("*, jobs(title), profiles(full_name)").order("created_at", { ascending: false }));
-  const list = S.docKind === "all" ? all : all.filter((d) => d.kind === S.docKind);
+  const term = String(S.dq || "").replace(/[,()"\\*%]/g, " ").replace(/\s+/g, " ").trim();
+  let q = sb.from("documents").select("id,kind,title,file_name,file_path,mime,size,amount,doc_date,paid,counterparty,doc_number,created_at,uploaded_by,job_id,jobs(title),profiles(full_name)")
+    .order("doc_date", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(1000);
+  if (term) q = q.or(["file_name", "title", "counterparty", "doc_number", "ocr_text"].map((c) => c + '.ilike."*' + term + '*"').join(","));
+  const all = chk(await q);
+  const years = [...new Set(all.map(docYear).filter(Boolean))].sort().reverse();
+  if (S.docYear !== "all" && !years.includes(S.docYear)) S.docYear = "all";
+  const list = all.filter((d) => (S.docKind === "all" || d.kind === S.docKind) && (S.docYear === "all" || docYear(d) === S.docYear));
   const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; render(); } }, l);
   const unpaid = all.filter((d) => d.kind === "fattura" && !d.paid && d.amount != null).reduce((s, d) => s + Number(d.amount), 0);
+  let used = null;
+  if (OWNER()) { try { used = chk(await sb.from("documents").select("size")).reduce((s, d) => s + Number(d.size || 0), 0); } catch { /* non essenziale */ } }
+  const status = h("p", { class: "muted" });
+  const search = h("input", { type: "search", id: "dq", placeholder: "Cerca: nome, cliente, numero, testo…", value: S.dq || "", enterkeyhint: "search", onkeydown: (e) => { if (e.key === "Enter") { S.dq = e.target.value; render(); } }, onchange: (e) => { S.dq = e.target.value; render(); } });
+  const tools = OWNER() ? h("div", { class: "card" },
+    h("div", { class: "title", style: "margin-top:0" }, "Archivio"),
+    h("p", { class: "muted", style: "margin:0 0 8px" }, list.length + (list.length === 1 ? " documento" : " documenti") + " con i filtri attuali."),
+    h("div", { class: "btns", style: "margin-top:0" },
+      h("button", { class: "secondary", onclick: () => {
+        const esc = (v) => { const s = String(v == null ? "" : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+        const rows = [["Data", "Tipo", "Controparte", "Numero", "Importo", "Nome file", "Lavoro", "Caricato da"]].concat(list.map((d) => [d.doc_date ? fDay(d.doc_date) : "", KINDS[d.kind] || d.kind, d.counterparty || "", d.doc_number || "", d.amount != null ? Number(d.amount).toFixed(2).replace(".", ",") : "", d.file_name || "", d.jobs?.title || "", d.profiles?.full_name || ""]));
+        downloadBlob(new Blob(["﻿" + rows.map((r) => r.map(esc).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" }), "indice_archivio.csv");
+      } }, "Indice (Excel)"),
+      h("button", { class: "secondary", onclick: async (e) => {
+        if (!list.length) return; e.target.disabled = true;
+        await attempt(() => zipDocs(list, (d) => (docYear(d) || "senza-data") + "/" + (KINDS[d.kind] || "Altro") + "/", "archivio" + (S.docYear === "all" ? "" : "_" + S.docYear) + ".zip", (t) => { status.textContent = t; }));
+        status.textContent = ""; e.target.disabled = false;
+      } }, "Scarica ZIP")),
+    status) : null;
   return [
     h("h1", {}, "Documenti"),
+    used != null ? h("div", { class: "card" }, h("div", { class: "row" }, h("span", { class: "muted" }, "Spazio file usato"), h("strong", {}, MB(used) + " / 1000 MB")),
+      h("div", { style: "height:10px;background:#EAEDEF;border-radius:6px;overflow:hidden;margin-top:6px" }, h("div", { style: "width:" + Math.min(100, Math.round(used / 10485.76)) + "%;height:100%;background:" + (used > 800 * 1048576 ? "#C0392B" : "#1B6A86") })),
+      used > 800 * 1048576 ? h("p", { class: "muted", style: "margin:8px 0 0" }, "Sei vicino al limite del piano gratuito: scarica l'archivio ZIP e togli i file più vecchi.") : null) : null,
     OWNER() && unpaid > 0 ? h("div", { class: "note", style: "margin:0 0 12px" }, "Fatture da pagare: " + money(unpaid)) : null,
-    h("div", { class: "chips" }, chip("all", "Tutti"), chip("foto", "Foto"), chip("bolla", "Bolle"), chip("fattura", "Fatture"), chip("altro", "Altro")),
-    h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "docForm" }) }, "+ Carica foto o documento"),
-    list.length ? list.map((d) => docItem(d, true)) : h("p", {}, "Nessun documento.")
+    h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "docForm" }) }, "+ Scansiona o carica documento"),
+    search,
+    h("div", { class: "chips", style: "margin-top:12px" }, chip("all", "Tutti"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
+    years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
+    tools,
+    list.length ? list.slice(0, 120).map((d) => docItem(d, true)) : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento."),
+    list.length > 120 ? h("p", { class: "muted" }, "Mostrati i primi 120: usa la ricerca o i filtri per trovare gli altri.") : null
   ];
 }
+async function docEditForm(id) {
+  const d = chk(await sb.from("documents").select("*").eq("id", id).single());
+  const jobs = chk(await sb.from("jobs").select("id,title").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
+  const clients = chk(await sb.from("clients").select("name").order("name"));
+  const ext = ((d.file_name || "").split(".").pop() || "pdf").toLowerCase();
+  const val = () => ({ kind: $("ek").value, date: $("ed").value || isoDay(new Date()), party: $("ep").value.trim(), number: $("en").value.trim(), amount: $("ea").value === "" ? null : num($("ea").value) });
+  const prev = h("div", { class: "note", id: "enm", style: "word-break:break-all" }, "");
+  const upd = () => { prev.textContent = "Nome file: " + stdName(val(), ext); };
+  const nodes = [
+    h("h1", {}, "Modifica documento"),
+    h("p", { class: "muted", style: "word-break:break-all" }, d.file_name || ""),
+    h("label", { for: "ek" }, "Tipo"), h("select", { id: "ek", onchange: upd }, Object.entries(KINDS).map(([k, l]) => h("option", { value: k, selected: k === d.kind }, l))),
+    h("label", { for: "ep" }, "Cliente / fornitore"), h("input", { id: "ep", value: d.counterparty || "", list: "dl_ec", oninput: upd }), h("datalist", { id: "dl_ec" }, clients.map((c) => h("option", { value: c.name }))),
+    h("label", { for: "en" }, "Numero documento"), h("input", { id: "en", value: d.doc_number || "", oninput: upd }),
+    h("label", { for: "ed" }, "Data del documento"), h("input", { id: "ed", type: "date", value: d.doc_date || "", onchange: upd }),
+    h("label", { for: "ea" }, "Importo totale €"), h("input", { id: "ea", type: "number", inputmode: "decimal", step: "0.01", value: d.amount != null ? d.amount : "", oninput: upd }),
+    h("label", { for: "ej" }, "Lavoro collegato"), h("select", { id: "ej" }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === d.job_id }, j.title))),
+    prev,
+    h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:14px" }, h("input", { id: "ern", type: "checkbox", checked: true, style: "width:22px;height:22px" }), "Aggiorna il nome del file"),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const v = val(), p = { kind: v.kind, counterparty: v.party || null, doc_number: v.number || null, doc_date: $("ed").value || null, amount: v.amount, job_id: $("ej").value || null };
+        if ($("ern").checked) { p.file_name = await uniqueName(stdName(v, ext), id); p.title = p.file_name; }
+        chk(await sb.from("documents").update(p).eq("id", id));
+      });
+      if (ok) back(); else e.target.disabled = false;
+    } }, "Salva modifiche")
+  ];
+  setTimeout(upd, 0);
+  return nodes;
+}
+
 async function prepFile(file) {
   if (!file.type.startsWith("image/") || file.type === "image/gif") return file;
   try {
     const bmp = await createImageBitmap(file);
-    const r = Math.min(1, 1600 / Math.max(bmp.width, bmp.height));
-    const c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
-    c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
-    const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.82));
+    let side = 1600, q = 0.8, blob = null;
+    for (let i = 0; i < 3; i++) {
+      const r = Math.min(1, side / Math.max(bmp.width, bmp.height));
+      const c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+      c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+      blob = await new Promise((res) => c.toBlob(res, "image/jpeg", q));
+      if (!blob || blob.size < 600000) break;
+      side = Math.round(side * 0.8); q = 0.72;
+    }
+    if (bmp.close) bmp.close();
     if (blob && blob.size < file.size) return new File([blob], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
   } catch { /* usa il file originale */ }
   return file;
@@ -569,12 +960,16 @@ function buildPdf(pages) {
 }
 
 async function docForm(jobId) {
-  const jobs = chk(await sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
-  const pages = []; let filt = "doc";
-  const box = h("div");
+  const [jobs, clients] = await Promise.all([
+    sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(100).then(chk),
+    sb.from("clients").select("id,name").order("name").then(chk)
+  ]);
+  const pages = []; let filt = "doc", analyzed = false, ocrText = "", rate = null, issued = false;
+  const box = h("div"), say = h("div", { class: "note", style: "display:none" });
+  const setSay = (t, err) => { say.style.display = t ? "block" : "none"; say.textContent = t || ""; say.style.borderColor = err ? "#C0392B" : ""; };
   async function addFiles(files) {
     for (const f of files) { try { pages.push({ bmp: await createImageBitmap(f), rot: 0 }); } catch { alert("Immagine non valida."); } }
-    drawScan();
+    analyzed = false; drawScan(); upName();
   }
   const camIn = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
   const galIn = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
@@ -585,8 +980,8 @@ async function docForm(jobId) {
       thumbs.push(h("div", { class: "card", style: "display:flex;gap:12px;align-items:center;padding:10px" },
         h("img", { src: c.toDataURL("image/jpeg", 0.6), alt: "Pagina " + (i + 1), style: "width:72px;border:1px solid #DDE2E6;border-radius:6px" }),
         h("strong", { style: "flex:1" }, "Pagina " + (i + 1)),
-        h("button", { class: "secondary", style: "height:40px", "aria-label": "Ruota", onclick: () => { pages[i].rot = (pages[i].rot + 90) % 360; drawScan(); } }, "↻"),
-        h("button", { class: "deny", style: "height:40px", "aria-label": "Elimina pagina", onclick: () => { pages.splice(i, 1); drawScan(); } }, "✕")));
+        h("button", { class: "secondary", style: "height:40px", "aria-label": "Ruota", onclick: () => { pages[i].rot = (pages[i].rot + 90) % 360; analyzed = false; drawScan(); } }, "↻"),
+        h("button", { class: "deny", style: "height:40px", "aria-label": "Elimina pagina", onclick: () => { pages.splice(i, 1); analyzed = false; drawScan(); upName(); } }, "✕")));
     }
     box.replaceChildren(...[
       thumbs,
@@ -598,6 +993,35 @@ async function docForm(jobId) {
     ].flat().filter((n) => n != null));
   }
   drawScan();
+  const kindNow = () => { const k = $("dk").value; return k === "auto" ? "altro" : k; };
+  const fileExt = () => { if (pages.length) return "pdf"; const f = $("df") && $("df").files[0]; if (!f) return "pdf"; if (f.type.startsWith("image/") && f.type !== "image/gif") return "jpg"; return ((f.name.split(".").pop() || "pdf").toLowerCase().replace(/[^a-z0-9]/g, "") || "pdf").slice(0, 5); };
+  const meta = () => {
+    const amt = $("da").value; const jt = (jobs.find((j) => j.id === $("dj").value) || {}).title || "";
+    return { kind: kindNow(), date: $("dd").value || isoDay(new Date()), party: kindNow() === "foto" ? (jt || $("dp").value.trim()) : $("dp").value.trim(), number: $("dn").value.trim(), amount: amt === "" ? null : num(amt), time: hhmm(new Date()) };
+  };
+  const nameBox = h("div", { class: "note", style: "word-break:break-all" }, "");
+  function upName() { if ($("dk")) nameBox.textContent = "Nome file: " + stdName(meta(), fileExt()); }
+  const hasSrc = () => pages.length || ($("df") && $("df").files[0]);
+  async function analyze() {
+    if (!hasSrc()) { alert("Scansiona una pagina o scegli un file."); return false; }
+    setSay("Leggo il documento… può servire qualche secondo.");
+    try {
+      ocrText = await readDocument({ pages, file: $("df").files[0] }, (t) => setSay(t));
+      const r = parseDoc(ocrText, { own: { name: co().name }, clients: clients.map((c) => c.name), today: new Date() });
+      if ($("dk").value === "auto" || $("dk").value === "altro") $("dk").value = r.kind;
+      if (r.party) $("dp").value = r.party;
+      if (r.number) $("dn").value = r.number;
+      if (r.date) $("dd").value = r.date;
+      if (r.amount != null) $("da").value = r.amount;
+      rate = r.rate; issued = r.issuedByOwn;
+      if ($("rgd")) $("rgd").value = issued ? "emessa" : "ricevuta";
+      const miss = [!r.party && "cliente/fornitore", !r.number && "numero", !r.date && "data", r.amount == null && "importo"].filter(Boolean);
+      setSay("Fatto: " + KINDS[r.kind] + (r.party ? " · " + r.party : "") + (r.number ? " · N. " + r.number : "") + (r.amount != null ? " · " + money(r.amount) : "") + ". " + (miss.length ? "Non ho trovato: " + miss.join(", ") + ". " : "") + "Controlla i dati qui sotto: la lettura può sbagliare.");
+      analyzed = true; upName(); return true;
+    } catch (e) {
+      analyzed = true; setSay((e && e.message ? e.message : "Lettura non riuscita") + " Puoi compilare i dati a mano e caricare lo stesso.", true); return false;
+    }
+  }
   async function makePdf() {
     const out = [];
     for (const p of pages) {
@@ -607,37 +1031,56 @@ async function docForm(jobId) {
     }
     return buildPdf(out);
   }
-  return [
+  const vat = hasVat();
+  const nodes = [
     h("h1", {}, "Nuovo documento"),
     h("div", { class: "card" }, h("div", { class: "title", style: "margin-top:0" }, "Scansiona"), h("p", { class: "muted" }, "Inquadra il foglio da sopra, con buona luce e riempiendo l'inquadratura. Puoi aggiungere più pagine."), box, camIn, galIn),
+    h("label", { for: "df" }, "Oppure carica un file già pronto (PDF o foto)"), h("input", { id: "df", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px", onchange: () => { analyzed = false; upName(); } }),
+    h("button", { class: "secondary", style: "width:100%;margin-top:14px", onclick: async (e) => { e.target.disabled = true; await analyze(); e.target.disabled = false; } }, "🔍 Leggi il documento e compila i dati"),
+    say,
+    h("h2", {}, "Dati del documento"),
     h("label", { for: "dk" }, "Tipo"),
-    h("select", { id: "dk" }, Object.entries(KINDS).map(([k, l]) => h("option", { value: k, selected: k === (jobId ? "foto" : "bolla") }, l))),
-    h("label", { for: "dt" }, "Titolo (facoltativo)"), h("input", { id: "dt", placeholder: "Es. Fattura fornitore Rossi" }),
+    h("select", { id: "dk", onchange: upName }, h("option", { value: "auto", selected: true }, "Riconosci da solo"), Object.entries(KINDS).map(([k, l]) => h("option", { value: k }, l))),
+    h("label", { for: "dp" }, "Cliente / fornitore"), h("input", { id: "dp", list: "dl_dp", oninput: upName, placeholder: "Es. Elettroforniture Rossi" }), h("datalist", { id: "dl_dp" }, clients.map((c) => h("option", { value: c.name }))),
+    h("label", { for: "dn" }, "Numero documento"), h("input", { id: "dn", oninput: upName, placeholder: "Es. 1245/2026" }),
+    h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: isoDay(new Date()), onchange: upName }),
+    h("label", { for: "da" }, "Importo totale in € (facoltativo)"), h("input", { id: "da", type: "number", inputmode: "decimal", step: "0.01", oninput: upName }),
     h("label", { for: "dj" }, "Lavoro collegato"),
-    h("select", { id: "dj" }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === jobId }, j.title))),
-    h("label", { for: "da" }, "Importo in € (facoltativo)"), h("input", { id: "da", type: "number", inputmode: "decimal", step: "0.01" }),
-    h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: new Date().toISOString().slice(0, 10) }),
-    h("label", { for: "df" }, "Oppure carica un file già pronto (PDF o foto)"), h("input", { id: "df", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px" }),
-    h("p", { class: "muted", style: "margin-top:6px" }, "Se hai scansionato delle pagine, viene caricato il PDF della scansione. Max 10 MB."),
+    h("select", { id: "dj", onchange: upName }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === jobId }, j.title))),
+    nameBox,
+    OWNER() ? h("div", { class: "card" },
+      h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:0" }, h("input", { id: "rg", type: "checkbox", style: "width:22px;height:22px" }), "Se è una fattura, aggiungila al registro (Ufficio)"),
+      h("select", { id: "rgd", style: "margin-top:8px" }, [["ricevuta", "Fattura ricevuta (da un fornitore)"], ["emessa", "Fattura emessa (a un cliente)"]].map(([k, l]) => h("option", { value: k }, l))),
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Servono controparte e importo totale.")) : null,
     h("button", { class: "primary", onclick: async (e) => {
-      e.target.disabled = true; e.target.textContent = "Caricamento…";
+      const btn = e.target;
+      if (!analyzed && $("dk").value === "auto" && hasSrc()) { btn.disabled = true; btn.textContent = "Leggo il documento…"; await analyze(); btn.disabled = false; btn.textContent = "Carica"; alert("Controlla i dati letti e premi di nuovo «Carica»."); return; }
+      btn.disabled = true; btn.textContent = "Caricamento…";
       const ok = await attempt(async () => {
-        let f, name;
-        if (pages.length) { const blob = await makePdf(); name = "Scansione " + new Date().toLocaleDateString("it-IT").replace(/\//g, "-") + ".pdf"; f = new File([blob], name, { type: "application/pdf" }); }
-        else { const f0 = $("df").files[0]; if (!f0) throw new Error("Scansiona una pagina o scegli un file"); name = f0.name; f = await prepFile(f0); }
+        let f, ext;
+        if (pages.length) { const blob = await makePdf(); f = new File([blob], "scansione.pdf", { type: "application/pdf" }); ext = "pdf"; }
+        else { const f0 = $("df").files[0]; if (!f0) throw new Error("Scansiona una pagina o scegli un file"); f = await prepFile(f0); ext = fileExt(); }
         if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB): prova con meno pagine o 'Bianco e nero'");
-        const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
+        const m = meta(), name = await uniqueName(stdName(m, ext));
         const path = S.p.company_id + "/" + crypto.randomUUID() + "." + ext;
         const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
         if (up.error) throw up.error;
-        const amount = $("da").value;
-        const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: $("dj").value || null, kind: $("dk").value, title: $("dt").value.trim() || null,
-          amount: amount === "" ? null : Number(amount), doc_date: $("dd").value || null, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id });
+        const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: $("dj").value || null, kind: m.kind, title: name, counterparty: m.party || null, doc_number: m.number || null,
+          amount: m.amount, doc_date: m.date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id, ocr_text: ocrText ? ocrText.slice(0, 20000) : null }).select("id").single();
         if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
+        if (OWNER() && $("rg") && $("rg").checked && m.kind === "fattura") {
+          if (!m.party || !(m.amount > 0)) { alert("Documento salvato, ma per il registro servono cliente/fornitore e importo: aggiungila da Ufficio › Fatture."); return; }
+          const rt = vat ? (rate != null ? rate : 22) : 0, total = m.amount, net = r2(total / (1 + rt / 100));
+          const r = await sb.from("invoices").insert({ company_id: S.p.company_id, direction: $("rgd").value, number: m.number || null, doc_date: m.date, counterparty: m.party, net, vat_rate: rt, vat_amount: r2(total - net), total, doc_id: ins.data.id });
+          if (r.error) alert("Documento salvato, ma non sono riuscito ad aggiungerlo al registro: " + translate(r.error.message));
+        }
       });
-      if (ok) back(); else { e.target.disabled = false; e.target.textContent = "Carica"; }
-    } }, "Carica")
+      if (ok) back(); else { btn.disabled = false; btn.textContent = "Carica"; }
+    } }, "Carica"),
+    h("p", { class: "muted", style: "margin-top:6px" }, "Il file viene salvato con un nome standard: AAAA-MM-GG_Tipo_Cliente_N-Numero_Importo. Max 10 MB.")
   ];
+  setTimeout(upName, 0);
+  return nodes;
 }
 
 /* ---------- ore ---------- */
@@ -662,6 +1105,514 @@ async function hoursView() {
   ];
 }
 
+/* ---------- ufficio (datore) ---------- */
+const REG = { forfettario: "Forfettario", semplificato: "Semplificato", ordinario: "Ordinario" };
+const QSTAT = { bozza: "Bozza", inviato: "Inviato", accettato: "Accettato", rifiutato: "Rifiutato" };
+const QCLS = { bozza: "b-todo", inviato: "b-doing", accettato: "b-done", rifiutato: "b-todo" };
+const CATS = ["Carburante", "Materiale", "Attrezzatura", "Veicoli", "Utenze", "Telefonia", "Assicurazioni", "Consulenze", "Formazione", "Altro"];
+const RATES = [22, 10, 5, 4, 0];
+const co = () => S.p.companies || {};
+const hasVat = () => !!co().tax_regime && co().tax_regime !== "forfettario";
+const num = (v) => { const n = parseFloat(String(v == null ? "" : v).replace(",", ".")); return isFinite(n) ? n : 0; };
+const r2 = (n) => Math.round(n * 100) / 100;
+const isoDay = (d) => { const x = new Date(d); x.setMinutes(x.getMinutes() - x.getTimezoneOffset()); return x.toISOString().slice(0, 10); };
+const dd = (s) => new Date(s + "T12:00:00");
+const fDay = (s) => (s ? dd(s).toLocaleDateString("it-IT") : "");
+const qNet = (q) => r2((q.items || []).reduce((s, x) => s + num(x.q) * num(x.p), 0));
+const qTot = (q) => r2(qNet(q) * (1 + num(q.vat_rate) / 100));
+const chipBar = (list, cur, set) => h("div", { class: "chips" }, list.map(([k, l]) => h("button", { class: "chip" + (cur === k ? " on" : ""), onclick: () => set(k) }, l)));
+
+function downloadBlob(blob, name) {
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+}
+async function sharePdf(blob, name) {
+  const f = new File([blob], name, { type: "application/pdf" });
+  try { if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: name }); return; } }
+  catch (e) { if (e && e.name === "AbortError") return; }
+  downloadBlob(blob, name);
+}
+async function uploadDoc(f0, kind, title, jobId, m) {
+  const f = await prepFile(f0); m = m || {};
+  if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB)");
+  const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
+  const date = m.date || isoDay(new Date());
+  const name = await uniqueName(stdName({ kind, date, party: m.party || "", number: m.number || "", amount: m.amount, time: hhmm(new Date()) }, ext));
+  const path = S.p.company_id + "/" + crypto.randomUUID() + "." + ext;
+  const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
+  if (up.error) throw up.error;
+  const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: jobId || null, kind, title: name, counterparty: m.party || null, doc_number: m.number || null, amount: m.amount != null ? m.amount : null,
+    doc_date: date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id }).select("id").single();
+  if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
+  return ins.data.id;
+}
+
+/* scadenze fiscali indicative */
+function fiscalDeadlines(reg, per, today) {
+  const out = [], t = new Date(today || new Date()); t.setHours(0, 0, 0, 0);
+  const end = new Date(t); end.setDate(end.getDate() + 90);
+  const add = (y, m, d, label) => {
+    const dt = new Date(y, m, d);
+    while (dt.getDay() === 0 || dt.getDay() === 6) dt.setDate(dt.getDate() + 1);
+    if (dt >= t && dt <= end) out.push({ date: dt, label });
+  };
+  const vat = reg !== "forfettario";
+  for (let k = 0; k <= 4; k++) {
+    const base = new Date(t.getFullYear(), t.getMonth() + k, 1), y = base.getFullYear(), m = base.getMonth();
+    const d16 = m === 7 ? 20 : 16;
+    add(y, m, d16, "F24: ritenute e contributi dei dipendenti (se hai dipendenti in busta paga)");
+    if (vat && per === "mensile") add(y, m, d16, "Liquidazione e versamento IVA del mese precedente");
+    if (vat && per !== "mensile") {
+      if (m === 4) add(y, m, 16, "Versamento IVA 1° trimestre");
+      if (m === 7) add(y, m, 20, "Versamento IVA 2° trimestre");
+      if (m === 10) add(y, m, 16, "Versamento IVA 3° trimestre");
+      if (m === 2) add(y, m, 16, "Versamento IVA 4° trimestre / saldo annuale");
+    }
+    if (vat && m === 11) add(y, m, 27, "Acconto IVA annuale");
+    if (vat && m === 3) add(y, m, 30, "Dichiarazione IVA annuale");
+    if (m === 5) add(y, m, 30, reg === "forfettario" ? "Saldo imposta sostitutiva e 1° acconto (o 30 luglio con +0,40%)" : "Saldo imposte sui redditi e 1° acconto");
+    if (m === 10) add(y, m, 30, reg === "forfettario" ? "2° acconto imposta sostitutiva" : "2° acconto imposte sui redditi");
+    if (m === 4 || m === 10 || m === 1) add(y, m, 16, "Contributi INPS fissi (se artigiano o commerciante)");
+    if (m === 7) add(y, m, 20, "Contributi INPS fissi (se artigiano o commerciante)");
+  }
+  return out.sort((a, b) => a.date - b.date);
+}
+function periodRange(per) {
+  const n = new Date(); let a, b;
+  if (per === "m") { a = new Date(n.getFullYear(), n.getMonth(), 1); b = new Date(n.getFullYear(), n.getMonth() + 1, 1); }
+  else if (per === "q") { const q = Math.floor(n.getMonth() / 3); a = new Date(n.getFullYear(), q * 3, 1); b = new Date(n.getFullYear(), q * 3 + 3, 1); }
+  else { a = new Date(n.getFullYear(), 0, 1); b = new Date(n.getFullYear() + 1, 0, 1); }
+  return [a, b];
+}
+function buildCsv(inv, exps, from, to) {
+  const esc = (v) => { const s = String(v == null ? "" : v); return /[";\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const nf = (n) => (n == null || n === "" ? "" : Number(n).toFixed(2).replace(".", ","));
+  const rows = [["Tipo", "Data", "Numero", "Cliente / Fornitore / Descrizione", "Categoria", "Imponibile", "Aliquota IVA %", "IVA", "Totale", "Scadenza", "Pagata", "Data pagamento"]];
+  inv.filter((i) => i.doc_date >= from && i.doc_date <= to).sort((a, b) => a.doc_date.localeCompare(b.doc_date)).forEach((i) =>
+    rows.push([i.direction === "emessa" ? "Fattura emessa" : "Fattura ricevuta", fDay(i.doc_date), i.number || "", i.counterparty, "", nf(i.net), nf(i.vat_rate), nf(i.vat_amount), nf(i.total), fDay(i.due_date), i.paid ? "Sì" : "No", fDay(i.paid_date)]));
+  exps.filter((e) => e.expense_date >= from && e.expense_date <= to).sort((a, b) => a.expense_date.localeCompare(b.expense_date)).forEach((e) =>
+    rows.push(["Spesa", fDay(e.expense_date), "", e.description || "", e.category, nf(r2(Number(e.amount) - Number(e.vat_amount))), nf(e.vat_rate), nf(e.vat_amount), nf(e.amount), "", "", ""]));
+  return "﻿" + rows.map((r) => r.map(esc).join(";")).join("\r\n");
+}
+
+/* ---- ore del team (riepilogo mensile) ---- */
+async function teamHours() {
+  await loadTeam();
+  const m0 = S.hm || monthStart(), a = new Date(m0.getFullYear(), m0.getMonth(), 1), b = new Date(m0.getFullYear(), m0.getMonth() + 1, 1);
+  const rows = chk(await sb.from("time_entries").select("*, jobs(title)").gte("started_at", a.toISOString()).lt("started_at", b.toISOString()).order("started_at"));
+  const who = (id) => (id === S.p.id ? S.p.full_name : nameOf(id)) || "—";
+  const by = {};
+  for (const e of rows) (by[e.user_id] = by[e.user_id] || []).push(e);
+  const len = (e) => (e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at);
+  const label = a.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+  const move = (n) => { S.hm = new Date(a.getFullYear(), a.getMonth() + n, 1); render(); };
+  const ids = Object.keys(by).sort((x, y) => who(x).localeCompare(who(y)));
+  const csv = () => {
+    const esc = (v) => { const s2 = String(v == null ? "" : v); return /[";\n]/.test(s2) ? '"' + s2.replace(/"/g, '""') + '"' : s2; };
+    const out = [["Dipendente", "Data", "Entrata", "Uscita", "Ore", "Lavoro"]];
+    for (const id of ids) {
+      for (const e of by[id]) out.push([who(id), D(e.started_at).toLocaleDateString("it-IT"), fTime(e.started_at), e.ended_at ? fTime(e.ended_at) : "in corso", (len(e) / 3600000).toFixed(2).replace(".", ","), e.jobs?.title || ""]);
+      out.push([who(id), "TOTALE", "", "", (by[id].reduce((t, e) => t + len(e), 0) / 3600000).toFixed(2).replace(".", ","), ""]);
+    }
+    downloadBlob(new Blob(["\ufeff" + out.map((r) => r.map(esc).join(";")).join("\r\n")], { type: "text/csv;charset=utf-8" }), "ore_" + a.getFullYear() + "-" + String(a.getMonth() + 1).padStart(2, "0") + ".csv");
+  };
+  return [
+    h("div", { class: "row", style: "margin:4px 0 12px" }, h("button", { class: "secondary", style: "width:56px", "aria-label": "Mese precedente", onclick: () => move(-1) }, "‹"), h("strong", { style: "text-transform:capitalize" }, label), h("button", { class: "secondary", style: "width:56px", "aria-label": "Mese successivo", onclick: () => move(1) }, "›")),
+    ids.length ? ids.map((id) => h("div", { class: "card" },
+      h("div", { class: "row" }, h("strong", {}, who(id)), h("strong", {}, dur(by[id].reduce((t, e) => t + len(e), 0)))),
+      h("details", {}, h("summary", { class: "muted", style: "margin-top:6px" }, by[id].length + (by[id].length === 1 ? " timbratura" : " timbrature")),
+        by[id].map((e) => h("div", { class: "row", style: "border-top:1px solid #EAEDEF;padding-top:6px;margin-top:6px" },
+          h("div", {}, h("div", {}, fDate(e.started_at)), h("div", { class: "muted" }, fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs?.title ? " · " + e.jobs.title : ""))), h("span", {}, dur(len(e)))))))) : h("p", {}, "Nessuna timbratura in questo mese."),
+    ids.length ? h("button", { class: "secondary", style: "width:100%", onclick: csv }, "Scarica ore del mese (Excel)") : null,
+    h("p", { class: "muted" }, "Le ore sono calcolate dalle timbrature di entrata e uscita.")
+  ];
+}
+
+async function officeView() {
+  if (!co().tax_regime) return [h("h1", {}, "Ufficio"), ...settingsBody(true)];
+  let body;
+  if (S.off === "quotes") body = await quotesList();
+  else if (S.off === "inv") body = await invoicesList();
+  else if (S.off === "exp") body = await expensesList();
+  else if (S.off === "hrs") body = await teamHours();
+  else if (S.off === "set") body = settingsBody(false);
+  else body = await officeHome();
+  return [h("h1", {}, "Ufficio"), chipBar([["home", "Riepilogo"], ["quotes", "Preventivi"], ["inv", "Fatture"], ["exp", "Spese"], ["hrs", "Ore"], ["set", "Azienda"]], S.off, (k) => { S.off = k; render(); }), body];
+}
+
+function settingsBody(first) {
+  const c = co();
+  return [
+    first ? h("div", { class: "note", style: "margin-top:0" }, "Prima di usare l'Ufficio indica il regime fiscale dell'azienda. Se non lo sai, chiedilo al commercialista: potrai cambiarlo in qualsiasi momento.") : null,
+    h("label", { for: "s_reg" }, "Regime fiscale"),
+    h("select", { id: "s_reg" }, h("option", { value: "" }, "Scegli…"),
+      [["forfettario", "Forfettario (senza IVA)"], ["semplificato", "Semplificato (con IVA)"], ["ordinario", "Ordinario (con IVA)"]].map(([k, l]) => h("option", { value: k, selected: c.tax_regime === k }, l))),
+    h("label", { for: "s_per" }, "Liquidazione IVA (solo se con IVA)"),
+    h("select", { id: "s_per" }, [["trimestrale", "Trimestrale"], ["mensile", "Mensile"]].map(([k, l]) => h("option", { value: k, selected: (c.iva_period || "trimestrale") === k }, l))),
+    h("label", { for: "s_vat" }, "Partita IVA"), h("input", { id: "s_vat", value: c.vat_number || "", inputmode: "numeric" }),
+    h("label", { for: "s_cf" }, "Codice fiscale"), h("input", { id: "s_cf", value: c.tax_code || "", autocapitalize: "characters" }),
+    h("label", { for: "s_ad" }, "Indirizzo della sede"), h("input", { id: "s_ad", value: c.address || "" }),
+    h("label", { for: "s_ph" }, "Telefono"), h("input", { id: "s_ph", type: "tel", value: c.phone || "" }),
+    h("label", { for: "s_em" }, "Email"), h("input", { id: "s_em", type: "email", value: c.email || "" }),
+    h("p", { class: "muted", style: "margin-top:8px" }, "Questi dati compaiono nell'intestazione dei preventivi in PDF."),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const reg = $("s_reg").value; if (!reg) throw new Error("Scegli il regime fiscale");
+        chk(await sb.rpc("set_company_settings", { p_regime: reg, p_iva_period: $("s_per").value, p_vat: $("s_vat").value, p_tax_code: $("s_cf").value, p_address: $("s_ad").value, p_phone: $("s_ph").value, p_email: $("s_em").value }));
+        S.p.companies = chk(await sb.from("companies").select("*").eq("id", S.p.company_id).single());
+      });
+      if (ok) { S.off = "home"; render(); } else e.target.disabled = false;
+    } }, "Salva")
+  ];
+}
+
+async function officeHome() {
+  const inv = chk(await sb.from("invoices").select("*").order("doc_date", { ascending: false }));
+  const exps = chk(await sb.from("expenses").select("*").order("expense_date", { ascending: false }));
+  const c = co(), vat = hasVat();
+  const [a, b] = periodRange(S.per), A = isoDay(a), B = isoDay(b), inP = (s) => s >= A && s < B;
+  const em = inv.filter((i) => i.direction === "emessa" && inP(i.doc_date)), ri = inv.filter((i) => i.direction === "ricevuta" && inP(i.doc_date)), ex = exps.filter((e) => inP(e.expense_date));
+  const sum = (arr, k) => r2(arr.reduce((s, x) => s + Number(x[k] || 0), 0));
+  const stat = (l, v, strong) => h("div", { class: "row", style: "padding:6px 0" }, h("span", { class: strong ? "" : "muted" }, l), h("strong", {}, v));
+  const today = isoDay(new Date());
+  const open = inv.filter((i) => !i.paid).sort((x, y) => (x.due_date || "9999").localeCompare(y.due_date || "9999"));
+  const toCollect = sum(open.filter((i) => i.direction === "emessa"), "total"), toPay = sum(open.filter((i) => i.direction === "ricevuta"), "total");
+  const late = open.filter((i) => i.due_date && i.due_date < today).length;
+  const costNet = r2(sum(ri, "net") + sum(ex, "amount") - sum(ex, "vat_amount"));
+  let fisc;
+  if (vat) {
+    const debt = sum(em, "vat_amount"), credit = r2(sum(ri, "vat_amount") + sum(ex, "vat_amount")), bal = r2(debt - credit);
+    fisc = h("div", { class: "card" }, stat("Fatturato (imponibile)", money(sum(em, "net"))), stat("IVA a debito (vendite)", money(debt)), stat("Acquisti e spese (imponibile)", money(costNet)), stat("IVA a credito (acquisti)", money(credit)), hr(),
+      stat(bal >= 0 ? "IVA da versare (stima)" : "IVA a credito (stima)", money(Math.abs(bal)), true),
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Stima sui documenti registrati nel periodo. La liquidazione ufficiale resta al commercialista."));
+  } else {
+    const y0 = isoDay(new Date(new Date().getFullYear(), 0, 1));
+    const incassato = r2(inv.filter((i) => i.direction === "emessa" && i.paid && (i.paid_date || i.doc_date) >= y0).reduce((s, i) => s + Number(i.total), 0));
+    const pct = Math.min(100, Math.round((incassato / 85000) * 100));
+    fisc = h("div", { class: "card" }, stat("Incassato nell'anno", money(incassato), true),
+      h("div", { style: "height:12px;background:#EAEDEF;border-radius:6px;overflow:hidden;margin:6px 0" }, h("div", { style: "width:" + pct + "%;height:100%;background:" + (pct >= 90 ? "#C0392B" : "#1B6A86") })),
+      h("p", { class: "muted", style: "margin:0 0 8px" }, "Limite del regime forfettario: " + money(85000) + " (" + pct + "%)"), hr(),
+      stat("Fatturato del periodo", money(sum(em, "total"))), stat("Costi registrati (solo informativi)", money(costNet)),
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Nel forfettario le imposte si calcolano sul fatturato incassato con un coefficiente, non sui costi."));
+  }
+  const dl = fiscalDeadlines(c.tax_regime, c.iva_period);
+  const from0 = isoDay(new Date(new Date().getFullYear(), 0, 1)), to0 = today;
+  return [
+    chipBar([["m", "Mese"], ["q", "Trimestre"], ["y", "Anno"]], S.per, (k) => { S.per = k; render(); }),
+    h("p", { class: "muted" }, "Regime: " + REG[c.tax_regime] + (vat ? " · IVA " + (c.iva_period || "trimestrale") : "")),
+    fisc,
+    h("h2", {}, "Incassi e pagamenti"),
+    h("div", { class: "card" }, stat("Da incassare", money(toCollect)), stat("Da pagare", money(toPay)), late ? stat("Scadute", late + (late === 1 ? " fattura" : " fatture"), true) : null),
+    open.length ? open.slice(0, 8).map((i) => h("div", { class: "card" },
+      h("div", { class: "row" }, h("div", {}, h("strong", {}, i.counterparty), h("div", { class: "muted" }, (i.direction === "emessa" ? "Da incassare" : "Da pagare") + (i.due_date ? " entro " + fDay(i.due_date) : ""))),
+        h("div", { style: "text-align:right" }, h("strong", {}, money(i.total)), i.due_date && i.due_date < today ? h("div", { class: "badge b-doing", style: "margin-top:4px" }, "Scaduta") : null)),
+      h("button", { class: "secondary", style: "width:100%;margin-top:10px;height:42px", onclick: async () => { if (await attempt(async () => { chk(await sb.from("invoices").update({ paid: true, paid_date: today }).eq("id", i.id)); })) render(); } }, i.direction === "emessa" ? "Segna incassata" : "Segna pagata"))) : h("p", {}, "Nessuna fattura in sospeso."),
+    h("h2", {}, "Prossime scadenze fiscali"),
+    dl.length ? h("div", { class: "card" }, dl.map((d, i) => h("div", { style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" }, h("div", { class: "when" }, d.date.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })), h("div", {}, d.label)))) : h("p", {}, "Nessuna scadenza nei prossimi 90 giorni."),
+    h("p", { class: "muted" }, "Date indicative: se cadono di sabato, domenica o festivo slittano. Conferma sempre con il commercialista."),
+    h("h2", {}, "Esporta per il commercialista"),
+    h("div", { class: "card" },
+      h("div", { class: "sp" }, h("div", {}, h("label", { for: "x_from", style: "margin-top:0" }, "Dal"), h("input", { id: "x_from", type: "date", value: from0 })), h("div", {}, h("label", { for: "x_to", style: "margin-top:0" }, "Al"), h("input", { id: "x_to", type: "date", value: to0 }))),
+      h("button", { class: "secondary", style: "width:100%;margin-top:12px", onclick: () => {
+        const f = $("x_from").value, t = $("x_to").value; if (!f || !t) { alert("Scegli le due date."); return; }
+        downloadBlob(new Blob([buildCsv(inv, exps, f, t)], { type: "text/csv;charset=utf-8" }), "registro_" + f + "_" + t + ".csv");
+      } }, "Scarica file Excel (CSV)"),
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Contiene fatture emesse, ricevute e spese del periodo."))
+  ];
+}
+const hr = () => h("hr");
+
+/* ---- preventivi ---- */
+async function quotesList() {
+  const list = chk(await sb.from("quotes").select("*, clients(name)").order("quote_date", { ascending: false }).order("number", { ascending: false }));
+  return [
+    h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "quoteForm" }) }, "+ Nuovo preventivo"),
+    list.length ? list.map((q) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "quote", id: q.id }) },
+      h("div", { class: "row" }, h("span", { class: "when" }, "N. " + q.number + " · " + fDay(q.quote_date)), h("span", { class: "badge " + QCLS[q.status] }, QSTAT[q.status])),
+      h("div", { class: "title" }, q.title || q.clients?.name || "Preventivo"), q.title && q.clients?.name ? h("div", { class: "muted" }, q.clients.name) : null,
+      h("div", { style: "margin-top:4px" }, h("strong", {}, money(qTot(q)))))) : h("p", {}, "Nessun preventivo.")
+  ];
+}
+async function quoteForm(id) {
+  const clients = chk(await sb.from("clients").select("id,name").order("name"));
+  const q = id ? chk(await sb.from("quotes").select("*").eq("id", id).single()) : null;
+  let number = q ? q.number : "";
+  if (!q) {
+    const yr = new Date().getFullYear(), r = chk(await sb.from("quotes").select("number")); let mx = 0;
+    for (const x of r) { const m = /^(\d{4})-(\d+)$/.exec(x.number || ""); if (m && +m[1] === yr) mx = Math.max(mx, +m[2]); }
+    number = yr + "-" + String(mx + 1).padStart(3, "0");
+  }
+  const items = q ? (q.items || []).map((x) => ({ ...x })) : [{ d: "", q: 1, u: "pz", p: "" }];
+  let rate = q ? num(q.vat_rate) : hasVat() ? 22 : 0;
+  const box = h("div"), tot = h("div", { class: "note" });
+  const calc = () => { const net = qNet({ items }), v = r2(net * (hasVat() ? rate : 0) / 100); tot.textContent = hasVat() ? "Imponibile " + money(net) + " · IVA " + money(v) + " · Totale " + money(r2(net + v)) : "Totale " + money(net); };
+  const draw = () => {
+    box.replaceChildren(...items.map((it, i) => h("div", { class: "card" },
+      h("label", { style: "margin-top:0" }, "Voce " + (i + 1)), h("textarea", { rows: "2", placeholder: "Descrizione", oninput: (e) => { it.d = e.target.value; } }, it.d || ""),
+      h("div", { class: "sp", style: "margin-top:8px" }, h("input", { type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità", value: it.q, oninput: (e) => { it.q = e.target.value; calc(); } }), h("input", { placeholder: "Unità", value: it.u || "", oninput: (e) => { it.u = e.target.value; } })),
+      h("input", { type: "number", inputmode: "decimal", step: "0.01", placeholder: hasVat() ? "Prezzo unitario € (senza IVA)" : "Prezzo unitario €", style: "margin-top:8px", value: it.p, oninput: (e) => { it.p = e.target.value; calc(); } }),
+      items.length > 1 ? h("button", { class: "ghost", style: "color:#A32121;margin-top:6px", onclick: () => { items.splice(i, 1); draw(); } }, "Rimuovi voce") : null)));
+    calc();
+  };
+  draw();
+  return [
+    h("h1", {}, q ? "Modifica preventivo" : "Nuovo preventivo"),
+    h("label", { for: "q_num" }, "Numero"), h("input", { id: "q_num", value: number }),
+    h("label", { for: "q_title" }, "Oggetto"), h("input", { id: "q_title", value: q?.title || "", placeholder: "Es. Impianto domotico villa" }),
+    h("label", { for: "q_cl" }, "Cliente"), h("select", { id: "q_cl" }, h("option", { value: "" }, "— nessuno —"), clients.map((c) => h("option", { value: c.id, selected: q?.client_id === c.id }, c.name))),
+    h("label", { for: "q_new" }, "Oppure nuovo cliente (solo nome)"), h("input", { id: "q_new" }),
+    h("div", { class: "sp" }, h("div", {}, h("label", { for: "q_date" }, "Data"), h("input", { id: "q_date", type: "date", value: q?.quote_date || isoDay(new Date()) })),
+      h("div", {}, h("label", { for: "q_val" }, "Valido fino al"), h("input", { id: "q_val", type: "date", value: q ? q.valid_until || "" : isoDay(new Date(Date.now() + 30 * 864e5)) }))),
+    h("h2", {}, "Voci"), box,
+    h("button", { class: "secondary", style: "width:100%", onclick: () => { items.push({ d: "", q: 1, u: "pz", p: "" }); draw(); } }, "+ Aggiungi voce"),
+    hasVat() ? [h("label", { for: "q_rate" }, "Aliquota IVA"), h("select", { id: "q_rate", onchange: (e) => { rate = num(e.target.value); calc(); } }, RATES.map((r) => h("option", { value: r, selected: r === rate }, r + "%")))] : null,
+    tot,
+    h("label", { for: "q_notes" }, "Note e condizioni (pagamento, tempi…)"), h("textarea", { id: "q_notes", rows: "3" }, q?.notes || ""),
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const clean = items.filter((x) => String(x.d || "").trim() || num(x.p)).map((x) => ({ d: String(x.d || "").trim(), q: num(x.q) || 1, u: String(x.u || "").trim(), p: num(x.p) }));
+        if (!clean.length) throw new Error("Aggiungi almeno una voce");
+        const nb = $("q_num").value.trim(); if (!nb) throw new Error("Inserisci il numero");
+        let client_id = $("q_cl").value || null; const nn = $("q_new").value.trim();
+        if (!client_id && nn) { client_id = chk(await sb.from("clients").insert({ company_id: S.p.company_id, name: nn }).select().single()).id; }
+        const payload = { number: nb, title: $("q_title").value.trim() || null, client_id, quote_date: $("q_date").value || isoDay(new Date()), valid_until: $("q_val").value || null, items: clean, vat_rate: hasVat() ? rate : 0, notes: $("q_notes").value.trim() || null };
+        if (id) chk(await sb.from("quotes").update(payload).eq("id", id)); else chk(await sb.from("quotes").insert({ ...payload, company_id: S.p.company_id }));
+      });
+      if (ok) back(); else e.target.disabled = false;
+    } }, "Salva preventivo")
+  ];
+}
+async function quotePdf(q, cl) {
+  const c0 = co(), vat = hasVat(), W = 1240, H = 1754, M = 90, FONT = "Arial, Helvetica, sans-serif";
+  const cvs = []; let g, y;
+  const newPage = () => { const cv = document.createElement("canvas"); cv.width = W; cv.height = H; g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H); g.fillStyle = "#14202B"; g.textBaseline = "top"; y = M; cvs.push(cv); };
+  const font = (sz, bold) => { g.font = (bold ? "bold " : "") + sz + "px " + FONT; };
+  const lines = (t, maxW) => { const out = []; for (const para of String(t || "").split("\n")) { let cur = ""; for (const w of para.split(/\s+/)) { const s = cur ? cur + " " + w : w; if (g.measureText(s).width > maxW && cur) { out.push(cur); cur = w; } else cur = s; } out.push(cur); } return out; };
+  const text = (t, x, yy, align, color) => { g.textAlign = align || "left"; if (color) g.fillStyle = color; g.fillText(t, x, yy); g.fillStyle = "#14202B"; };
+  newPage();
+  font(46, true); text(c0.name || "", M, y); y += 64;
+  font(24);
+  for (const l of [c0.vat_number ? "P.IVA " + c0.vat_number : "", c0.tax_code ? "C.F. " + c0.tax_code : "", c0.address || "", [c0.phone, c0.email].filter(Boolean).join("   ·   ")].filter(Boolean)) { text(l, M, y, "left", "#4E5A66"); y += 32; }
+  y += 30; font(40, true); text("PREVENTIVO n. " + q.number, M, y); y += 56;
+  font(26); text("Data: " + fDay(q.quote_date) + (q.valid_until ? "      Valido fino al: " + fDay(q.valid_until) : ""), M, y); y += 52;
+  if (cl) {
+    font(22, true); text("CLIENTE", M, y, "left", "#4E5A66"); y += 30; font(28, true); text(cl.name, M, y); y += 40; font(24);
+    for (const l of [cl.address, cl.phone, cl.email].filter(Boolean)) { text(l, M, y); y += 32; }
+    y += 20;
+  }
+  if (q.title) { font(28, true); for (const l of lines("Oggetto: " + q.title, W - 2 * M)) { text(l, M, y); y += 38; } y += 10; }
+  const xq = 790, xp = 960, xa = W - M;
+  const head = () => { g.fillStyle = "#EEF0F2"; g.fillRect(M, y, W - 2 * M, 50); g.fillStyle = "#14202B"; font(22, true); text("Descrizione", M + 14, y + 13); text("Q.tà", xq, y + 13, "right"); text("Prezzo", xp, y + 13, "right"); text("Importo", xa - 14, y + 13, "right"); y += 62; };
+  head();
+  for (const it of q.items || []) {
+    font(26); const ls = lines(it.d || "", xq - M - 150), rowH = Math.max(1, ls.length) * 34 + 18;
+    if (y + rowH > H - M - 300) { newPage(); head(); }
+    font(26); ls.forEach((l, i) => text(l, M + 14, y + i * 34));
+    text(String(num(it.q)).replace(".", ",") + (it.u ? " " + it.u : ""), xq, y, "right"); text(money(num(it.p)), xp, y, "right"); text(money(r2(num(it.q) * num(it.p))), xa - 14, y, "right");
+    y += rowH; g.fillStyle = "#DDE2E6"; g.fillRect(M, y - 8, W - 2 * M, 2); g.fillStyle = "#14202B";
+  }
+  if (y > H - M - 300) newPage();
+  y += 14;
+  const net = qNet(q), rate = vat ? num(q.vat_rate) : 0, v = r2(net * rate / 100);
+  const tl = (l, val, b) => { font(b ? 32 : 26, b); text(l, xp - 60, y, "right"); text(val, xa - 14, y, "right"); y += b ? 52 : 40; };
+  if (vat) { tl("Imponibile", money(net)); tl("IVA " + rate + "%", money(v)); }
+  tl("TOTALE", money(r2(net + v)), true);
+  y += 10; font(22);
+  const extra = [];
+  if (!vat) extra.push("Operazione senza applicazione dell'IVA ai sensi dell'art. 1, commi 54-89, L. 190/2014 (regime forfettario).");
+  if (q.notes) extra.push(q.notes);
+  for (const para of extra) for (const l of lines(para, W - 2 * M)) { if (y > H - M - 40) newPage(), font(22); text(l, M, y, "left", "#4E5A66"); y += 30; }
+  const pages = [];
+  for (const cv of cvs) { const blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.88)); pages.push({ bytes: new Uint8Array(await blob.arrayBuffer()), w: cv.width, h: cv.height }); }
+  return buildPdf(pages);
+}
+async function quoteView(id) {
+  const q = chk(await sb.from("quotes").select("*, clients(*)").eq("id", id).single()), cl = q.clients, vat = hasVat();
+  const net = qNet(q), v = r2(net * (vat ? num(q.vat_rate) : 0) / 100);
+  const act = (fn) => async () => { if (await attempt(fn)) render(); };
+  return [
+    h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, "Preventivo " + q.number), h("span", { class: "badge " + QCLS[q.status] }, QSTAT[q.status])),
+    q.title ? h("p", { class: "title", style: "margin-top:0" }, q.title) : null,
+    h("p", { class: "muted" }, fDay(q.quote_date) + (q.valid_until ? " · valido fino al " + fDay(q.valid_until) : "") + (cl ? " · " + cl.name : "")),
+    h("div", { class: "card" }, (q.items || []).map((it, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
+      h("div", {}, h("div", {}, it.d || "—"), h("div", { class: "muted" }, String(num(it.q)).replace(".", ",") + (it.u ? " " + it.u : "") + " × " + money(num(it.p)))), h("strong", {}, money(r2(num(it.q) * num(it.p))))))),
+    h("div", { class: "card" }, vat ? [h("div", { class: "row" }, h("span", { class: "muted" }, "Imponibile"), h("span", {}, money(net))), h("div", { class: "row" }, h("span", { class: "muted" }, "IVA " + num(q.vat_rate) + "%"), h("span", {}, money(v)))] : null,
+      h("div", { class: "row", style: vat ? "margin-top:6px" : "" }, h("strong", {}, "Totale"), h("strong", {}, money(r2(net + v))))),
+    q.notes ? h("div", { class: "card" }, h("div", { class: "muted" }, "Note"), h("div", { style: "white-space:pre-wrap" }, q.notes)) : null,
+    h("button", { class: "primary", style: "margin-top:4px", onclick: async (e) => {
+      e.target.disabled = true; e.target.textContent = "Creo il PDF…";
+      await attempt(async () => { const blob = await quotePdf(q, cl); await sharePdf(blob, "Preventivo " + q.number + ".pdf"); });
+      e.target.disabled = false; e.target.textContent = "Crea PDF e condividi";
+    } }, "Crea PDF e condividi"),
+    h("label", { for: "q_st" }, "Stato"),
+    h("select", { id: "q_st", onchange: act(async () => { chk(await sb.from("quotes").update({ status: $("q_st").value }).eq("id", id)); }) }, Object.entries(QSTAT).map(([k, l]) => h("option", { value: k, selected: q.status === k }, l))),
+    h("h2", {}, "Azioni"),
+    q.job_id ? h("button", { class: "secondary", style: "width:100%;margin-bottom:10px", onclick: () => go({ t: "job", id: q.job_id }) }, "Apri il lavoro collegato")
+      : h("button", { class: "secondary", style: "width:100%;margin-bottom:10px", onclick: async () => {
+        if (await attempt(async () => {
+          const desc = (q.items || []).map((x) => "• " + x.d + " — " + String(num(x.q)).replace(".", ",") + (x.u ? " " + x.u : "")).join("\n");
+          const r = chk(await sb.from("jobs").insert({ company_id: S.p.company_id, client_id: q.client_id, title: q.title || "Lavoro da preventivo " + q.number, description: desc, address: cl?.address || null, status: "todo", created_by: S.p.id }).select().single());
+          chk(await sb.from("quotes").update({ job_id: r.id, status: "accettato" }).eq("id", id));
+          S.draft.openJob = r.id;
+        })) { const jid = S.draft.openJob; S.draft.openJob = null; go({ t: "job", id: jid }); }
+      } }, "Crea lavoro da questo preventivo"),
+    h("button", { class: "secondary", style: "width:100%", onclick: () => { S.draft.inv = { direction: "emessa", counterparty: cl?.name || "", net, vat_rate: vat ? num(q.vat_rate) : 0, notes: "Rif. preventivo " + q.number }; go({ t: "invoiceForm" }); } }, "Registra fattura emessa"),
+    h("button", { class: "secondary", style: "width:100%;margin-top:22px", onclick: () => go({ t: "quoteForm", id }) }, "Modifica preventivo"),
+    h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questo preventivo?")) return; if (await attempt(async () => { chk(await sb.from("quotes").delete().eq("id", id)); })) back(); } }, "Elimina preventivo")
+  ];
+}
+
+/* ---- registro fatture ---- */
+async function invoicesList() {
+  const all = chk(await sb.from("invoices").select("*").order("doc_date", { ascending: false }));
+  const f = S.invF, list = all.filter((i) => f === "all" || (f === "open" ? !i.paid : i.direction === f));
+  const today = isoDay(new Date());
+  return [
+    h("button", { class: "primary", style: "margin:0 0 12px", onclick: () => go({ t: "invoiceForm" }) }, "+ Nuova fattura"),
+    chipBar([["all", "Tutte"], ["emessa", "Emesse"], ["ricevuta", "Ricevute"], ["open", "Da saldare"]], f, (k) => { S.invF = k; render(); }),
+    list.length ? list.map((i) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "invoiceForm", id: i.id }) },
+      h("div", { class: "row" }, h("span", { class: "when" }, (i.direction === "emessa" ? "Emessa" : "Ricevuta") + (i.number ? " n. " + i.number : "") + " · " + fDay(i.doc_date)),
+        h("span", { class: "badge " + (i.paid ? "b-done" : i.due_date && i.due_date < today ? "b-doing" : "b-todo") }, i.paid ? (i.direction === "emessa" ? "Incassata" : "Pagata") : i.due_date && i.due_date < today ? "Scaduta" : "Aperta")),
+      h("div", { class: "title" }, i.counterparty), h("div", { class: "row" }, h("span", { class: "muted" }, i.due_date ? "Scadenza " + fDay(i.due_date) : ""), h("strong", {}, money(i.total))))) : h("p", {}, "Nessuna fattura.")
+  ];
+}
+async function invoiceForm(id) {
+  const inv = id ? chk(await sb.from("invoices").select("*").eq("id", id).single()) : null;
+  const pre = inv || S.draft.inv || {}; S.draft.inv = null;
+  const clients = chk(await sb.from("clients").select("name").order("name"));
+  let docRow = null; if (inv && inv.doc_id) { const r = await sb.from("documents").select("file_path").eq("id", inv.doc_id).maybeSingle(); docRow = r.data; }
+  const vat = hasVat(), rate0 = vat ? (pre.vat_rate != null ? num(pre.vat_rate) : 22) : 0;
+  const summary = (net, rate) => { const v = r2(net * rate / 100); return (vat ? "IVA " + money(v) + " · " : "") + "Totale " + money(r2(net + v)); };
+  const calc = () => { $("i_tot").textContent = summary(num($("i_net").value), vat ? num($("i_rate").value) : 0); };
+  return [
+    h("h1", {}, inv ? "Modifica fattura" : "Nuova fattura"),
+    h("label", { for: "i_dir" }, "Tipo"), h("select", { id: "i_dir" }, [["emessa", "Emessa (a un cliente)"], ["ricevuta", "Ricevuta (da un fornitore)"]].map(([k, l]) => h("option", { value: k, selected: (pre.direction || "emessa") === k }, l))),
+    h("label", { for: "i_num" }, "Numero fattura"), h("input", { id: "i_num", value: pre.number || "" }),
+    h("label", { for: "i_cp" }, "Cliente / fornitore"), h("input", { id: "i_cp", value: pre.counterparty || "", list: "dl_cl" }), h("datalist", { id: "dl_cl" }, clients.map((c) => h("option", { value: c.name }))),
+    h("label", { for: "i_date" }, "Data fattura"), h("input", { id: "i_date", type: "date", value: pre.doc_date || isoDay(new Date()) }),
+    h("label", { for: "i_net" }, vat ? "Imponibile € (senza IVA)" : "Importo €"), h("input", { id: "i_net", type: "number", inputmode: "decimal", step: "0.01", value: pre.net != null ? pre.net : "", oninput: calc }),
+    vat ? [h("label", { for: "i_rate" }, "Aliquota IVA"), h("select", { id: "i_rate", onchange: calc }, RATES.map((r) => h("option", { value: r, selected: r === rate0 }, r + "%")))] : null,
+    h("div", { class: "note", id: "i_tot" }, summary(num(pre.net), rate0)),
+    !vat ? h("p", { class: "muted", style: "margin-top:8px" }, "Regime forfettario: niente IVA. Sulle fatture emesse sopra 77,47 € ricorda la marca da bollo da 2 €.") : null,
+    h("label", { for: "i_due" }, "Scadenza pagamento"), h("input", { id: "i_due", type: "date", value: pre.due_date || "" }),
+    h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:18px" }, h("input", { id: "i_paid", type: "checkbox", checked: !!pre.paid, style: "width:22px;height:22px" }), "Già saldata"),
+    h("label", { for: "i_pd" }, "Data del pagamento"), h("input", { id: "i_pd", type: "date", value: pre.paid_date || "" }),
+    h("label", { for: "i_notes" }, "Note"), h("textarea", { id: "i_notes", rows: "2" }, pre.notes || ""),
+    h("label", { for: "i_file" }, docRow ? "Sostituisci allegato (PDF o foto)" : "Allega la fattura (PDF o foto, facoltativo)"), h("input", { id: "i_file", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px" }),
+    docRow ? h("button", { class: "ghost", onclick: () => openDoc({ file_path: docRow.file_path }) }, "Apri allegato attuale") : null,
+    h("button", { class: "primary", onclick: async (e) => {
+      e.target.disabled = true;
+      const ok = await attempt(async () => {
+        const date = $("i_date").value; if (!date) throw new Error("Inserisci la data");
+        const cp = $("i_cp").value.trim(); if (!cp) throw new Error("Indica cliente o fornitore");
+        const net = num($("i_net").value); if (!(net > 0)) throw new Error("Inserisci l'importo");
+        const rate = vat ? num($("i_rate").value) : 0, v = r2(net * rate / 100), dir = $("i_dir").value;
+        let doc_id = inv ? inv.doc_id : null; const f = $("i_file").files[0];
+        if (f) doc_id = await uploadDoc(f, "fattura", null, null, { party: cp, number: $("i_num").value.trim(), amount: r2(net + v), date });
+        const paid = $("i_paid").checked;
+        const payload = { direction: dir, number: $("i_num").value.trim() || null, doc_date: date, due_date: $("i_due").value || null, counterparty: cp, net, vat_rate: rate, vat_amount: v, total: r2(net + v), paid, paid_date: paid ? ($("i_pd").value || isoDay(new Date())) : null, doc_id, notes: $("i_notes").value.trim() || null };
+        if (id) chk(await sb.from("invoices").update(payload).eq("id", id)); else chk(await sb.from("invoices").insert({ ...payload, company_id: S.p.company_id }));
+      });
+      if (ok) back(); else e.target.disabled = false;
+    } }, "Salva fattura"),
+    id ? h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questa fattura dal registro?")) return; if (await attempt(async () => { chk(await sb.from("invoices").delete().eq("id", id)); })) back(); } }, "Elimina") : null
+  ];
+}
+
+/* ---- spese ---- */
+async function expensesList() {
+  const all = chk(await sb.from("expenses").select("*").order("expense_date", { ascending: false }));
+  const [a, b] = periodRange("m"), A = isoDay(a), B = isoDay(b);
+  const month = r2(all.filter((e) => e.expense_date >= A && e.expense_date < B).reduce((s, e) => s + Number(e.amount), 0));
+  return [
+    h("button", { class: "primary", style: "margin:0 0 12px", onclick: () => go({ t: "expenseForm" }) }, "+ Nuova spesa"),
+    h("div", { class: "note", style: "margin:0 0 12px" }, "Spese di questo mese: " + money(month)),
+    all.length ? all.map((e) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "expenseForm", id: e.id }) },
+      h("div", { class: "row" }, h("span", { class: "when" }, e.category + " · " + fDay(e.expense_date)), h("strong", {}, money(e.amount))), e.description ? h("div", { class: "muted" }, e.description) : null)) : h("p", {}, "Nessuna spesa registrata.")
+  ];
+}
+async function expenseForm(id) {
+  const e0 = id ? chk(await sb.from("expenses").select("*").eq("id", id).single()) : null, vat = hasVat();
+  let docRow = null; if (e0 && e0.doc_id) { const r = await sb.from("documents").select("file_path").eq("id", e0.doc_id).maybeSingle(); docRow = r.data; }
+  const rate0 = e0 ? num(e0.vat_rate) : vat ? 22 : 0;
+  const calc = () => { const el = $("e_tot"); if (!el) return; const t = num($("e_amt").value), r = vat ? num($("e_rate").value) : 0; el.textContent = "di cui IVA " + money(r2(t - t / (1 + r / 100))); };
+  return [
+    h("h1", {}, e0 ? "Modifica spesa" : "Nuova spesa"),
+    h("label", { for: "e_date" }, "Data"), h("input", { id: "e_date", type: "date", value: e0?.expense_date || isoDay(new Date()) }),
+    h("label", { for: "e_cat" }, "Categoria"), h("select", { id: "e_cat" }, CATS.map((c) => h("option", { value: c, selected: e0?.category === c }, c))),
+    h("label", { for: "e_desc" }, "Descrizione"), h("input", { id: "e_desc", value: e0?.description || "", placeholder: "Es. Gasolio furgone" }),
+    h("label", { for: "e_amt" }, vat ? "Importo totale € (IVA inclusa)" : "Importo €"), h("input", { id: "e_amt", type: "number", inputmode: "decimal", step: "0.01", value: e0 ? e0.amount : "", oninput: calc }),
+    vat ? [h("label", { for: "e_rate" }, "Aliquota IVA"), h("select", { id: "e_rate", onchange: calc }, RATES.map((r) => h("option", { value: r, selected: r === rate0 }, r + "%"))), h("div", { class: "note", id: "e_tot" }, "di cui IVA " + money(r2(num(e0?.amount) - num(e0?.amount) / (1 + rate0 / 100))))] : null,
+    h("label", { for: "e_file" }, docRow ? "Sostituisci scontrino o fattura" : "Foto dello scontrino o fattura (facoltativo)"), h("input", { id: "e_file", type: "file", accept: "image/*,application/pdf", style: "height:auto;padding:12px" }),
+    docRow ? h("button", { class: "ghost", onclick: () => openDoc({ file_path: docRow.file_path }) }, "Apri allegato attuale") : null,
+    h("button", { class: "primary", onclick: async (ev) => {
+      ev.target.disabled = true;
+      const ok = await attempt(async () => {
+        const amount = num($("e_amt").value); if (!(amount > 0)) throw new Error("Inserisci l'importo");
+        const rate = vat ? num($("e_rate").value) : 0;
+        let doc_id = e0 ? e0.doc_id : null; const f = $("e_file").files[0];
+        if (f) doc_id = await uploadDoc(f, "scontrino", null, null, { party: $("e_desc").value.trim() || $("e_cat").value, amount, date: $("e_date").value || isoDay(new Date()) });
+        const payload = { expense_date: $("e_date").value || isoDay(new Date()), category: $("e_cat").value, description: $("e_desc").value.trim() || null, amount, vat_rate: rate, vat_amount: r2(amount - amount / (1 + rate / 100)), doc_id };
+        if (id) chk(await sb.from("expenses").update(payload).eq("id", id)); else chk(await sb.from("expenses").insert({ ...payload, company_id: S.p.company_id }));
+      });
+      if (ok) back(); else ev.target.disabled = false;
+    } }, "Salva spesa"),
+    id ? h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questa spesa?")) return; if (await attempt(async () => { chk(await sb.from("expenses").delete().eq("id", id)); })) back(); } }, "Elimina") : null
+  ];
+}
+
+/* ---------- home ---------- */
+async function homeView() {
+  const now = new Date(), t0 = new Date(now.getFullYear(), now.getMonth(), now.getDate()), t1 = new Date(t0.getTime() + 864e5), t8 = new Date(t0.getTime() + 8 * 864e5);
+  const sel = "*, clients(name,phone,address), job_assignments(user_id)";
+  const [today, next] = await Promise.all([
+    sb.from("jobs").select(sel).gte("start_at", t0.toISOString()).lt("start_at", t1.toISOString()).order("start_at").then(chk),
+    sb.from("jobs").select(sel).gte("start_at", t1.toISOString()).lt("start_at", t8.toISOString()).neq("status", "done").order("start_at").limit(5).then(chk)
+  ]);
+  const hr0 = now.getHours(), greet = hr0 < 13 ? "Buongiorno" : hr0 < 18 ? "Buon pomeriggio" : "Buonasera";
+  const first = (S.p.full_name || "").split(" ")[0];
+  const open = today.filter((j) => j.status !== "done");
+  const nodes = [
+    h("p", { class: "muted", style: "margin:8px 0 0;text-transform:capitalize" }, now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
+    h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!"),
+    h("p", {}, today.length ? (open.length ? "Oggi hai " + open.length + (open.length === 1 ? " lavoro" : " lavori") + " in programma." : "Tutti i lavori di oggi sono completati. Ottimo!") : "Oggi non ci sono lavori in programma.")
+  ];
+  if (OWNER()) {
+    await loadTeam();
+    const pending = S.team.filter((t) => t.status === "pending");
+    if (pending.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", style: "border-color:#E08A00", onclick: () => setTab("team") },
+      h("div", { class: "row" }, h("div", {}, h("strong", {}, pending.length + (pending.length === 1 ? " richiesta" : " richieste") + " di accesso"), h("div", { class: "muted" }, pending.map((p) => p.full_name).join(", "))), h("span", { class: "when" }, "Apri ›"))));
+    let late = [], dl = null;
+    try {
+      if (co().tax_regime) {
+        const todayS = isoDay(now);
+        late = chk(await sb.from("invoices").select("*").eq("paid", false).lt("due_date", todayS));
+        dl = fiscalDeadlines(co().tax_regime, co().iva_period).find((d) => d.date - t0 <= 14 * 864e5) || null;
+      }
+    } catch { /* ufficio non ancora configurato */ }
+    const toC = late.filter((i) => i.direction === "emessa"), toP = late.filter((i) => i.direction === "ricevuta");
+    if (late.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => { S.off = "home"; setTab("office"); } },
+      h("strong", {}, "Fatture scadute"), toC.length ? h("div", { class: "muted" }, "Da incassare: " + money(r2(toC.reduce((s, i) => s + Number(i.total), 0))) + " (" + toC.length + ")") : null,
+      toP.length ? h("div", { class: "muted" }, "Da pagare: " + money(r2(toP.reduce((s, i) => s + Number(i.total), 0))) + " (" + toP.length + ")") : null));
+    if (dl) nodes.push(h("div", { class: "card" }, h("div", { class: "when" }, "Scadenza fiscale · " + dl.date.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })), h("div", {}, dl.label)));
+    let clocked = [];
+    try { clocked = chk(await sb.from("time_entries").select("*").is("ended_at", null)); } catch { /* ore non disponibili */ }
+    if (clocked.length) nodes.push(h("div", { class: "note", style: "margin:0 0 12px" }, "In servizio ora: " + clocked.map((c) => (c.user_id === S.p.id ? "Tu" : nameOf(c.user_id) || "—") + " (dalle " + fTime(c.started_at) + ")").join(", ")));
+    nodes.push(h("div", { class: "btns", style: "margin:0 0 6px" }, h("button", { class: "ok", onclick: () => { S.tab = "jobs"; go({ t: "jobForm" }); } }, "+ Lavoro"), h("button", { class: "secondary", onclick: () => { S.tab = "office"; S.off = "quotes"; go({ t: "quoteForm" }); } }, "+ Preventivo")));
+  } else {
+    const open1 = chk(await sb.from("time_entries").select("*, jobs(title)").is("ended_at", null));
+    const cur = open1[0];
+    nodes.push(h("div", { class: "card" },
+      h("div", { class: "row" }, h("div", {}, h("strong", {}, cur ? "Sei in servizio" : "Non sei in servizio"), cur ? h("div", { class: "muted" }, "Dalle " + fTime(cur.started_at) + " (" + dur(Date.now() - D(cur.started_at)) + ")" + (cur.jobs?.title ? " · " + cur.jobs.title : "")) : null)),
+      h("button", { class: cur ? "primary out" : "primary", style: "margin-top:10px;height:48px", onclick: async () => { if (await attempt(async () => { chk(cur ? await sb.rpc("clock_out") : await sb.rpc("clock_in", { p_job: null })); })) render(); } }, cur ? "Timbra uscita" : "Timbra entrata")));
+  }
+  nodes.push(h("h2", {}, "Programma di oggi"), today.length ? today.map(jobCard) : h("p", {}, "Niente in programma: giornata libera."));
+  if (next.length) nodes.push(h("h2", {}, "Nei prossimi giorni"), next.map(jobCard));
+  return nodes;
+}
+
 /* ---------- team (datore) ---------- */
 async function teamView() {
   await loadTeam();
@@ -680,13 +1631,16 @@ async function teamView() {
     h("h2", {}, "Dipendenti attivi (" + active.length + ")"),
     active.length ? active.map((t) => h("div", { class: "card" }, h("div", { class: "row" }, h("div", {}, h("strong", {}, t.full_name), h("div", { class: "muted" }, t.email)),
       h("div", { style: "text-align:right" }, h("div", { class: "muted" }, "Ore del mese"), h("strong", {}, dur(hours[t.id] || 0)))),
-      h("button", { class: "ghost", style: "margin-top:6px;color:#A32121", onclick: () => { if (confirm("Rimuovere " + t.full_name + " dall'azienda?")) decide(t.id, "rejected"); } }, "Rimuovi"))) : h("p", {}, "Ancora nessun dipendente.")
+      h("button", { class: "ghost", style: "margin-top:6px;color:#A32121", onclick: () => { if (confirm("Rimuovere " + t.full_name + " dall'azienda?")) decide(t.id, "rejected"); } }, "Rimuovi"))) : h("p", {}, "Ancora nessun dipendente."),
+    S.team.some((t) => t.status === "rejected") ? [h("h2", {}, "Rifiutati o rimossi"), S.team.filter((t) => t.status === "rejected").map((t) => h("div", { class: "card row" }, h("div", {}, h("strong", {}, t.full_name), h("div", { class: "muted" }, t.email)), h("button", { class: "ok", style: "height:42px", onclick: () => decide(t.id, "active") }, "Riattiva")))] : null
   ];
 }
 
 /* ---------- avvio ---------- */
 sb.auth.onAuthStateChange((event, session) => {
-  if (event === "SIGNED_OUT") { S.p = null; S.tab = "jobs"; S.sub = null; S.stack = []; authScreen(); }
+  if (event === "PASSWORD_RECOVERY") { recovering = true; recoveryScreen(); return; }
+  if (recovering) return;
+  if (event === "SIGNED_OUT") { S.p = null; S.tab = "home"; S.sub = null; S.stack = []; authScreen(); }
   else if (event === "SIGNED_IN" && (!S.p || (session && session.user.id !== S.p.id))) boot();
 });
 if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js"); } catch { /* non essenziale */ } }
