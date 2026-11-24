@@ -431,7 +431,7 @@ function moreView() {
     tile("🛠️", "Garanzie e manutenzioni", "Scadenze per cliente", () => go({ t: "warr" })),
     h("h2", {}, "Persone e mezzi"),
     tile("🏖️", "Ferie e permessi", "Richieste e approvazioni", () => go({ t: "leave" })),
-    tile("🚗", "Chilometri", "Km dei veicoli", () => go({ t: "km" })),
+    tile("🚐", "Mezzi", "Veicoli, scadenze e scontrini carburante", () => go({ t: "vehicles" })),
     OWNER() ? tile("👥", "Team", "Richieste di accesso e dipendenti", () => setTab("team")) : null,
     h("h2", {}, "Svago e impostazioni"),
     tile("📻", "Radio", "Ascolta mentre lavori", () => go({ t: "radio" })),
@@ -1075,8 +1075,96 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  warr: warrView, chase: chaseView, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
+
+
+/* ---------- mezzi (veicoli, scadenze, scontrini carburante) ---------- */
+const VDL_KINDS = ["Assicurazione", "Bollo", "Revisione", "Tagliando", "Gomme", "Altro"];
+const fdate = (d) => new Date(d + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short", year: "numeric" });
+async function vehiclesView() {
+  const [vs, dl] = await Promise.all([sb.from("vehicles").select("*").order("name").then(chk), sb.from("vehicle_deadlines").select("*").eq("done", false).order("due_date").then(chk)]);
+  const today = isoDay(new Date());
+  return [h("h1", {}, "Mezzi"),
+    h("div", { class: "btns", style: "margin-top:0" }, OWNER() ? h("button", { class: "ok", onclick: () => go({ t: "vehForm" }) }, "+ Mezzo") : null, h("button", { class: OWNER() ? "secondary" : "ok", onclick: () => go({ t: "fuelForm" }) }, "⛽ Scontrino carburante")),
+    vs.length ? vs.map((v) => { const next = dl.find((d) => d.vehicle_id === v.id), late = next && next.due_date < today;
+      return h("div", { class: "card tap", role: "button", tabindex: "0", style: late ? "border-color:#E08A00" : "", onclick: () => go({ t: "vehicle", id: v.id }) },
+        h("div", { class: "row" }, h("strong", {}, "🚐 " + v.name), h("span", { class: "muted" }, v.plate || "")),
+        v.kind ? h("div", { class: "muted" }, v.kind) : null,
+        next ? h("div", { class: late ? "when" : "muted", style: late ? "color:#A32121" : "" }, (late ? "Scaduto: " : "Prossima scadenza: ") + next.kind + " · " + fdate(next.due_date)) : h("div", { class: "muted" }, "Nessuna scadenza")); })
+      : h("p", {}, OWNER() ? "Ancora nessun mezzo: aggiungi il primo." : "Il titolare non ha ancora inserito i mezzi.")];
+}
+async function vehicleView(sub) {
+  const v = chk(await sb.from("vehicles").select("*").eq("id", sub.id).single());
+  const [dl, docs] = await Promise.all([sb.from("vehicle_deadlines").select("*").eq("vehicle_id", v.id).order("due_date").then(chk), sb.from("documents").select("*").eq("vehicle_id", v.id).order("doc_date", { ascending: false }).then(chk)]);
+  const today = isoDay(new Date()), ms = isoDay(monthStart()), ys = today.slice(0, 4) + "-01-01";
+  const sum = (a) => r2(a.reduce((s, d) => s + (Number(d.amount) || 0), 0));
+  const open = dl.filter((d) => !d.done), done = dl.filter((d) => d.done);
+  const dcard = (d) => { const late = !d.done && d.due_date < today;
+    return h("div", { class: "card tap", role: "button", tabindex: "0", style: late ? "border-color:#E08A00" : "", onclick: () => go({ t: "vdlForm", vid: v.id, id: d.id }) },
+      h("div", { class: "row" }, h("strong", {}, d.kind), h("span", { class: late ? "when" : "muted", style: late ? "color:#A32121" : "" }, late ? "Scaduto " + fdate(d.due_date) : fdate(d.due_date))), d.notes ? h("div", { class: "muted" }, d.notes) : null); };
+  return [h("h1", {}, v.name), h("p", { class: "muted" }, [v.plate, v.kind].filter(Boolean).join(" · ")), v.notes ? h("div", { class: "card", style: "white-space:pre-wrap" }, v.notes) : null,
+    h("h2", {}, "Scadenze"), open.length ? open.map(dcard) : h("p", {}, "Nessuna scadenza da fare."),
+    h("button", { class: "secondary", style: "width:100%", onclick: () => go({ t: "vdlForm", vid: v.id }) }, "+ Scadenza"),
+    done.length ? [h("h2", {}, "Fatte"), done.slice(-5).reverse().map(dcard)] : null,
+    h("h2", {}, "Scontrini e documenti"),
+    h("div", { class: "note", style: "margin-top:0" }, "Spesa questo mese: " + money(sum(docs.filter((d) => (d.doc_date || "") >= ms))) + " · quest'anno: " + money(sum(docs.filter((d) => (d.doc_date || "") >= ys)))),
+    h("button", { class: "ok", style: "width:100%;margin:10px 0", onclick: () => go({ t: "fuelForm", vid: v.id }) }, "⛽ Nuovo scontrino carburante"),
+    docs.length ? docs.map((d) => docItem(d, false)) : h("p", {}, "Nessuno scontrino ancora."),
+    OWNER() ? [h("button", { class: "secondary", style: "width:100%;margin-top:18px", onclick: () => go({ t: "vehForm", id: v.id }) }, "Modifica mezzo"),
+      delBtn("Eliminare questo mezzo e le sue scadenze? Gli scontrini restano nell'archivio.", async () => { chk(await sb.from("vehicles").delete().eq("id", v.id)); })] : null];
+}
+async function vehForm(sub) {
+  ownerNeeded(); const v = sub.id ? chk(await sb.from("vehicles").select("*").eq("id", sub.id).single()) : {};
+  return [h("h1", {}, sub.id ? "Modifica mezzo" : "Nuovo mezzo"),
+    h("label", { for: "v_n" }, "Nome"), h("input", { id: "v_n", value: v.name || "", placeholder: "Es. Furgone bianco" }),
+    h("label", { for: "v_p" }, "Targa"), h("input", { id: "v_p", value: v.plate || "", autocapitalize: "characters" }),
+    h("label", { for: "v_k" }, "Tipo"), h("input", { id: "v_k", value: v.kind || "", list: "dl_vk", placeholder: "Furgone, auto, rimorchio…" }), h("datalist", { id: "dl_vk" }, ["Furgone", "Auto", "Rimorchio", "Scala/Attrezzatura"].map((x) => h("option", { value: x }))),
+    h("label", { for: "v_o" }, "Note"), h("textarea", { id: "v_o", rows: "3" }, v.notes || ""),
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const name = $("v_n").value.trim(); if (!name) throw new Error("Scrivi il nome del mezzo");
+      const row = { name, plate: $("v_p").value.trim().toUpperCase() || null, kind: $("v_k").value.trim() || null, notes: $("v_o").value.trim() || null };
+      if (sub.id) chk(await sb.from("vehicles").update(row).eq("id", sub.id)); else chk(await sb.from("vehicles").insert({ ...row, company_id: S.p.company_id })); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva")];
+}
+async function vdlForm(sub) {
+  const d = sub.id ? chk(await sb.from("vehicle_deadlines").select("*").eq("id", sub.id).single()) : {};
+  return [h("h1", {}, sub.id ? "Scadenza" : "Nuova scadenza"),
+    h("label", { for: "d_k" }, "Cosa scade"), h("input", { id: "d_k", value: d.kind || "Assicurazione", list: "dl_dk" }), h("datalist", { id: "dl_dk" }, VDL_KINDS.map((x) => h("option", { value: x }))),
+    h("label", { for: "d_d" }, "Data di scadenza"), h("input", { id: "d_d", type: "date", value: d.due_date || "" }),
+    h("label", { for: "d_n" }, "Note"), h("textarea", { id: "d_n", rows: "2" }, d.notes || ""),
+    cbox("d_x", "Fatta (verrà rinnovata con una nuova scadenza)", d.done),
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const due = $("d_d").value; if (!due) throw new Error("Scegli la data");
+      const row = { kind: $("d_k").value.trim() || "Altro", due_date: due, notes: $("d_n").value.trim() || null, done: $("d_x").checked };
+      if (sub.id) chk(await sb.from("vehicle_deadlines").update(row).eq("id", sub.id)); else chk(await sb.from("vehicle_deadlines").insert({ ...row, company_id: S.p.company_id, vehicle_id: sub.vid })); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva"),
+    sub.id ? delBtn("Eliminare questa scadenza?", async () => { chk(await sb.from("vehicle_deadlines").delete().eq("id", sub.id)); }) : null];
+}
+async function fuelForm(sub) {
+  const vs = chk(await sb.from("vehicles").select("id,name,plate").order("name"));
+  const say = h("p", { class: "muted" }), file = h("input", { id: "f_f", type: "file", accept: "image/*,application/pdf", capture: "environment", style: "height:auto;padding:12px" });
+  const readIt = async () => {
+    const f = file.files[0]; if (!f) { alert("Prima scatta o scegli la foto dello scontrino."); return; }
+    try { const txt = await readDocument({ file: f }, (t) => { say.textContent = t; });
+      const r = parseDoc(txt, { own: { name: co().name, vat: co().vat_number }, clients: [], today: new Date() });
+      if (r.amount != null) $("f_a").value = r.amount; if (r.date) $("f_d").value = r.date;
+      say.textContent = r.amount != null ? "Letto: " + money(r.amount) + (r.date ? " del " + fdate(r.date) : "") + ". Controlla prima di salvare." : "Non sono riuscito a leggere l'importo: scrivilo tu.";
+    } catch (e) { say.textContent = "Lettura non riuscita: scrivi l'importo a mano."; }
+  };
+  return [h("h1", {}, "Scontrino carburante"),
+    h("label", { for: "f_v" }, "Mezzo"), h("select", { id: "f_v" }, h("option", { value: "" }, "— scegli —"), vs.map((v) => h("option", { value: v.id, selected: sub.vid === v.id }, v.name + (v.plate ? " · " + v.plate : "")))),
+    h("label", { for: "f_f" }, "Foto dello scontrino"), file,
+    h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: readIt }, "🔍 Leggi importo e data dalla foto"), say,
+    h("div", { class: "sp" }, h("div", {}, h("label", { for: "f_a" }, "Importo €"), h("input", { id: "f_a", type: "number", inputmode: "decimal", step: "0.01" })), h("div", {}, h("label", { for: "f_d" }, "Data"), h("input", { id: "f_d", type: "date", value: isoDay(new Date()) }))),
+    h("p", { class: "muted" }, "La foto viene archiviata nei Documenti con un nome standard e collegata al mezzo."),
+    h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
+      const f = file.files[0]; if (!f) throw new Error("Serve la foto dello scontrino"); const vid = $("f_v").value; if (!vid) throw new Error("Scegli il mezzo");
+      const amt = numOrNull($("f_a").value); if (amt == null) throw new Error("Scrivi l'importo");
+      const v = vs.find((x) => x.id === vid);
+      await uploadDoc(f, "scontrino", null, null, { party: "Carburante " + (v.plate || v.name), amount: amt, date: $("f_d").value || undefined, vehicle: vid }); });
+      if (ok) back(); else e.target.disabled = false; } }, "Salva scontrino")];
+}
 
 /* ---------- avvio ---------- */
 function recoveryScreen(err) {
@@ -1965,7 +2053,7 @@ async function uploadDoc(f0, kind, title, jobId, m) {
   const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" });
   if (up.error) throw up.error;
   const ins = await sb.from("documents").insert({ company_id: S.p.company_id, job_id: jobId || null, kind, title: name, counterparty: m.party || null, doc_number: m.number || null, amount: m.amount != null ? m.amount : null,
-    doc_date: date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id, ...(m.phase ? { phase: m.phase } : {}) }).select("id").single();
+    doc_date: date, file_path: path, file_name: name, mime: f.type, size: f.size, uploaded_by: S.p.id, ...(m.phase ? { phase: m.phase } : {}), ...(m.vehicle ? { vehicle_id: m.vehicle } : {}) }).select("id").single();
   if (ins.error) { await sb.storage.from("docs").remove([path]); throw ins.error; }
   return ins.data.id;
 }
@@ -2427,6 +2515,10 @@ async function homeView() {
       const wl = chk(await sb.from("warranties").select("title,due_date,kind").eq("done", false).lte("due_date", isoDay(new Date(Date.now() + 30 * 864e5))).order("due_date").limit(4));
       if (wl.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "warr" }) }, h("strong", {}, "Garanzie e manutenzioni in scadenza"), wl.map((w) => h("div", { class: "muted" }, w.title + " · " + new Date(w.due_date + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" })))));
     } catch { /* sezione non ancora attiva */ }
+    try {
+      const vl = chk(await sb.from("vehicle_deadlines").select("kind,due_date,vehicles(name)").eq("done", false).lte("due_date", isoDay(new Date(Date.now() + 30 * 864e5))).order("due_date").limit(4));
+      if (vl.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "vehicles" }) }, h("strong", {}, "Scadenze dei mezzi"), vl.map((w) => h("div", { class: "muted" }, ((w.vehicles && w.vehicles.name) || "Mezzo") + " · " + w.kind + " · " + new Date(w.due_date + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" })))));
+    } catch { /* sezione non ancora attiva */ }
     if (dl) nodes.push(h("div", { class: "card" }, h("div", { class: "when" }, "Scadenza fiscale · " + dl.date.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })), h("div", {}, dl.label)));
     let clocked = [];
     try { clocked = chk(await sb.from("time_entries").select("*").is("ended_at", null)); } catch { /* ore non disponibili */ }
@@ -2518,7 +2610,8 @@ const APP_NEWS = [
   ["Garanzie e manutenzioni", "Scadenze per cliente, con avviso in Home."],
   ["Costo e guadagno per lavoro", "Ore, spese documentate e fatturato di ogni lavoro (titolare)."],
   ["Solleciti", "Messaggi pronti per i clienti con fatture scadute (WhatsApp, email, copia)."],
-  ["Chilometri, ferie e permessi, bacheca", "Registro km con CSV, richieste di ferie approvate dal titolare, avvisi per tutti."],
+  ["Mezzi", "Veicoli con scadenze (assicurazione, bollo, revisione…) e scontrini del carburante con foto archiviata."],
+  ["Ferie, permessi e bacheca", "Richieste di ferie approvate dal titolare e avvisi per tutti."],
   ["Cerca ovunque e Novità", "Una ricerca unica su tutto e una pagina con cosa è successo dall'ultima volta."],
   ["Assistente IA (facoltativo)", "Interruttore del titolare: legge meglio i documenti e risponde a domande. Si paga a consumo."],
   ["Meteo in Home", "Meteo di oggi e dei prossimi giorni; si può cambiare città o usare la posizione."],
