@@ -438,7 +438,7 @@ function moreView() {
   const T = (k) => () => setTab(k), G = (t) => () => go({ t });
   return [
     h("h1", {}, "Menu"),
-    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports")), own ? sq("✅", "Modelli checklist", G("tpls")) : null]),
+    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports"))]),
     group("Documenti e soldi", [sq("🗂️", "Documenti", T("docs")), own ? sq("💼", "Ufficio", T("office")) : null, own ? sq("✉️", "Solleciti", G("chase")) : null]),
     group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Schede impianto", G("assets")), sq("📦", "Magazzino", G("stock"))]),
     group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
