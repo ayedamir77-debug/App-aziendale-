@@ -1092,7 +1092,7 @@ async function profileView() {
     alert("Permesso: " + perm + "\nModo: " + mode + "\nNotifiche registrate dal sistema: " + open.length + (err ? "\nErrore: " + err : "") + "\n\n" + (open.length ? "Il browser l'ha creata. Se non la vedi, la blocca il telefono (impostazioni notifiche / non disturbare)." : "Il browser NON l'ha creata.")); }); };
   setTimeout(refresh, 0);
   return [h("h1", {}, "Il mio profilo"),
-    h("div", { class: "card" }, h("strong", {}, "🔔 Notifiche sul telefono"), pst, pbtn, ptest, ploc,
+    h("div", { class: "card" }, h("strong", {}, "🔔 Notifiche sul telefono"), pst, pbtn,
       h("p", { class: "muted", style: "margin:8px 0 0" }, "Ti avvisano di chat, lavori assegnati e ferie anche con l'app chiusa e il telefono bloccato.")),
     h("div", { class: "card" },
       h("label", { for: "pn", style: "margin-top:0" }, "Il tuo nome"), h("input", { id: "pn", value: S.p.full_name || "" }),
