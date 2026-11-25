@@ -872,13 +872,20 @@ async function profileView() {
   return [h("h1", {}, "Il mio profilo"),
     h("div", { class: "card" },
       h("label", { for: "pn", style: "margin-top:0" }, "Il tuo nome"), h("input", { id: "pn", value: S.p.full_name || "" }),
-      h("div", { class: "muted", style: "margin-top:10px" }, "Email: " + (S.p.email || "")),
-      h("div", { class: "muted" }, "Ruolo: " + (OWNER() ? "titolare" : "dipendente")),
+      h("div", { class: "muted", style: "margin-top:10px" }, "Ruolo: " + (OWNER() ? "titolare" : "dipendente")),
       h("button", { class: "primary", onclick: async (e) => {
         e.target.disabled = true;
         const ok = await attempt(async () => { const n = $("pn").value.trim(); if (!n) throw new Error("Scrivi un nome"); chk(await sb.rpc("set_my_name", { p_name: n })); S.p.full_name = n; S.team = []; });
         if (ok) back(); else e.target.disabled = false;
-      } }, "Salva il nome"))];
+      } }, "Salva il nome")),
+    h("div", { class: "card" },
+      h("label", { for: "pe", style: "margin-top:0" }, "La tua email di accesso"), h("input", { id: "pe", type: "email", value: S.p.email || "" }),
+      h("p", { class: "muted" }, "Quando la cambi ti arriva una mail di conferma: apri il link che contiene. Fino ad allora entri con la vecchia."),
+      h("button", { class: "secondary", style: "width:100%", onclick: async (e) => {
+        e.target.disabled = true;
+        const ok = await attempt(async () => { const m = $("pe").value.trim(); if (!/^\S+@\S+\.\S+$/.test(m)) throw new Error("Email non valida"); const r = await sb.auth.updateUser({ email: m }); if (r.error) throw r.error; alert("Ti ho mandato una mail di conferma a " + m + ". Apri il link per completare il cambio."); });
+        e.target.disabled = false;
+      } }, "Cambia email"))];
 }
 async function tplsView() {
   const custom = chk(await sb.from("checklists").select("*").order("name"));
