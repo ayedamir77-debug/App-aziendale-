@@ -1098,7 +1098,11 @@ async function newsView() {
 }
 
 /* ---------- assistente IA e impostazioni extra ---------- */
-async function aiCall(payload) {
+async function aiCall(payload, tries = 3) {
+  try { return await aiCall1(payload); }
+  catch (e) { if (tries > 1 && /high demand|overloaded|unavailable|try again|429|503/i.test(String(e.message))) { await new Promise((r) => setTimeout(r, 2500)); return aiCall(payload, tries - 1); } throw e; }
+}
+async function aiCall1(payload) {
   const { data, error } = await sb.functions.invoke("ai-assist-", { body: { provider: co().ai_provider || "claude", ownName: co().name || "", ...payload } });
   if (error) { let m = error.message || String(error); try { const j = await error.context.json(); if (j && j.error) m = j.error; } catch { /* nessun dettaglio */ } throw new Error("Assistente IA: " + m); }
   if (data && data.error) throw new Error(data.error);
