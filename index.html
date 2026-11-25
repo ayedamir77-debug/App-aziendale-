@@ -1135,7 +1135,7 @@ async function tplsView() {
 /* ore di un lavoro: dai rapportini (minuti × persone) se ci sono, altrimenti dalle timbrature */
 async function jobMs(j) {
   let rm = 0;
-  try { const rr = chk(await sb.from("reports").select("minutes,with_ids").eq("job_id", j.id).not("minutes", "is", null)); rm = rr.reduce((a, r) => a + r.minutes * (1 + (r.with_ids || []).length), 0); } catch { /* ignora */ }
+  try { const rr = chk(await sb.from("reports").select("minutes,with_ids").eq("job_id", j.id).not("minutes", "is", null)); rm = rr.reduce((a, r) => a + r.minutes, 0); } catch { /* ignora */ }
   if (rm > 0) return rm * 60000;
   const te = chk(await sb.from("time_entries").select("started_at,ended_at").eq("job_id", j.id));
   return te.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
@@ -1146,7 +1146,7 @@ async function jobCostCard(j, docs) {
   const labor = r2(ms / 3600000 * rate), mat = r2(docs.filter((d) => ["fattura", "scontrino"].includes(d.kind) && d.amount != null).reduce((s, d) => s + Number(d.amount), 0)), rev = r2(inv.reduce((s, i) => s + Number(i.total), 0)), cost = r2(labor + mat);
   const line = (l, v, b) => h("div", { class: "row", style: "padding:3px 0" }, h("span", { class: b ? "" : "muted" }, l), b ? h("strong", {}, v) : h("span", {}, v));
   return [h("h2", {}, "Costo e guadagno"), h("div", { class: "card" },
-    line("Ore lavorate (somma di tutte le persone)", dur(ms)), line("Costo manodopera" + (rate ? "" : " (imposta il costo orario in Altro › Assistente IA e impostazioni)"), money(labor)),
+    line("Ore lavorate", dur(ms)), line("Costo manodopera" + (rate ? "" : " (imposta il costo orario in Altro › Assistente IA e impostazioni)"), money(labor)),
     line("Spese documentate (fatture e scontrini)", money(mat)), line("Costo totale", money(cost), true), line("Fatturato al cliente", money(rev)), line("Margine", money(r2(rev - cost)), true),
     h("p", { class: "muted", style: "margin:8px 0 0" }, "Le fatture emesse si collegano al lavoro dalla scheda fattura."))];
 }
