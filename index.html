@@ -109,6 +109,9 @@ function h(tag, attrs, ...kids) {
     if (kid == null || kid === false) continue;
     el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));
   }
+  if ((tag === "input" || tag === "textarea") && !(attrs && attrs.autocomplete) && !["password", "email", "checkbox", "radio"].includes(attrs && attrs.type)) {
+    el.setAttribute("autocomplete", "off"); el.setAttribute("autocorrect", "off");
+  }
   if (pending != null) el.value = pending;
   return el;
 }
