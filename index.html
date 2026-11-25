@@ -885,7 +885,18 @@ async function profileView() {
         e.target.disabled = true;
         const ok = await attempt(async () => { const m = $("pe").value.trim(); if (!/^\S+@\S+\.\S+$/.test(m)) throw new Error("Email non valida"); const r = await sb.auth.updateUser({ email: m }); if (r.error) throw r.error; alert("Ti ho mandato una mail di conferma a " + m + ". Apri il link per completare il cambio."); });
         e.target.disabled = false;
-      } }, "Cambia email"))];
+      } }, "Cambia email")),
+    h("div", { class: "card" },
+      h("label", { for: "pw1", style: "margin-top:0" }, "Nuova password"), h("input", { id: "pw1", type: "password", autocomplete: "new-password", placeholder: "Almeno 8 caratteri" }),
+      h("label", { for: "pw2" }, "Ripeti la nuova password"), h("input", { id: "pw2", type: "password", autocomplete: "new-password" }),
+      h("button", { class: "secondary", style: "width:100%;margin-top:12px", onclick: async (e) => {
+        e.target.disabled = true;
+        const ok = await attempt(async () => { const a = $("pw1").value; if (a.length < 8) throw new Error("La password deve avere almeno 8 caratteri"); if (a !== $("pw2").value) throw new Error("Le due password non coincidono"); const r = await sb.auth.updateUser({ password: a }); if (r.error) throw r.error; $("pw1").value = ""; $("pw2").value = ""; alert("Password cambiata."); });
+        e.target.disabled = false;
+      } }, "Cambia password"),
+      h("button", { class: "ghost", style: "margin-top:8px", onclick: async () => {
+        await attempt(async () => { const r = await sb.auth.resetPasswordForEmail(S.p.email, { redirectTo: location.origin + location.pathname }); if (r.error) throw r.error; alert("Ti ho mandato una mail a " + S.p.email + " con il link per scegliere una nuova password."); });
+      } }, "Ho dimenticato la password: mandami una mail"))];
 }
 async function tplsView() {
   const custom = chk(await sb.from("checklists").select("*").order("name"));
