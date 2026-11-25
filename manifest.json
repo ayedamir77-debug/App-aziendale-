@@ -1,12 +1,12 @@
 {
-  "name": "App Azienda",
-  "short_name": "Azienda",
+  "name": "Light Project",
+  "short_name": "Light Project",
   "description": "Gestione lavori, clienti, documenti e ore",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#F6F7F8",
-  "theme_color": "#1B6A86",
+  "background_color": "#FFFFFF",
+  "theme_color": "#02175A",
   "lang": "it",
   "icons": [
     { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
