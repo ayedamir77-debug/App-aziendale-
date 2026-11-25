@@ -116,6 +116,11 @@ function logoBox(size) {
   const img = new Image(); img.alt = "Logo"; img.onload = () => { d.replaceChildren(img); }; img.src = "logo.png";
   return d;
 }
+function wideLogo() {
+  const d = logoBox(); const img = new Image(); img.alt = "Light Project";
+  img.style.cssText = "width:100%;max-width:300px;height:auto;display:block;margin:6px 0 4px";
+  img.onload = () => d.replaceWith(img); return d;
+}
 const JOB_ICONS = [[/cancell|automazion|basculant|sbarra|portone/, "🚪"], [/telecamer|videosorv|cctv|nvr|dvr/, "📹"], [/allarm|antifurt|sirena|sensor|centrale/, "🚨"], [/antenn|parabol|sat\b|digitale|tv\b|decoder/, "📡"], [/rete|internet|wifi|wi-fi|router|fibra|cablagg|\blan\b|switch/, "🌐"], [/domotic|home assistant|smart|knx|automazione casa/, "🏠"], [/quadro|industrial|capannone|motore|trifase|cabina|officina/, "🏭"], [/luce|luci|illumin|led|faretti/, "💡"]];
 const jobIcon = (t) => { const n = String(t || "").toLowerCase(); for (const [re, ic] of JOB_ICONS) if (re.test(n)) return ic; return "⚡"; };
 function show(...nodes) { root.replaceChildren(...nodes.flat(Infinity).filter((n) => n != null && n !== false)); }
@@ -356,7 +361,7 @@ function authScreen(error, info) {
   const titles = { login: "Accedi", owner: "Crea la tua azienda", employee: "Unisciti alla tua azienda" };
   const labels = { login: "Accedi", owner: "Crea azienda", employee: "Invia richiesta" };
   show(
-    logoBox(), h("h1", {}, titles[mode]),
+    wideLogo(), h("h1", {}, titles[mode]),
     mode === "employee" ? h("p", {}, "Usa il codice che ti ha dato il datore di lavoro.") : null,
     h("div", { class: "tabs" }, tab("login", "Accedi"), tab("employee", "Dipendente"), tab("owner", "Datore")),
     ...fields,
@@ -869,6 +874,8 @@ async function simplePdf(blocks, sig) {
   const newPage = () => { const cv = document.createElement("canvas"); cv.width = W; cv.height = H; g = cv.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H); g.fillStyle = "#14202B"; g.textBaseline = "top"; y = M; cvs.push(cv); };
   const wrap = (t, maxW) => { const out = []; for (const para of String(t || "").split("\n")) { let cur = ""; for (const w of para.split(/\s+/)) { const s = cur ? cur + " " + w : w; if (g.measureText(s).width > maxW && cur) { out.push(cur); cur = w; } else cur = s; } out.push(cur); } return out; };
   newPage(); const c0 = co();
+  const lg = await new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = "logo-wide.png"; });
+  if (lg) { const lw = 460, lh = Math.round(lw * lg.height / lg.width); g.drawImage(lg, M, y, lw, lh); y += lh + 24; g.strokeStyle = "#FFB800"; g.lineWidth = 5; g.beginPath(); g.moveTo(M, y); g.lineTo(W - M, y); g.stroke(); y += 28; }
   g.font = "bold 44px " + FONT; g.fillText(c0.name || "", M, y); y += 60;
   g.font = "22px " + FONT; g.fillStyle = "#4E5A66"; for (const l of [c0.vat_number ? "P.IVA " + c0.vat_number : "", c0.address || "", [c0.phone, c0.email].filter(Boolean).join("  ·  ")].filter(Boolean)) { g.fillText(l, M, y); y += 30; }
   g.fillStyle = "#14202B"; y += 30;
