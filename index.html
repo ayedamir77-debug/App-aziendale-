@@ -2350,7 +2350,7 @@ async function docForm(jobId) {
     say,
     h("h2", {}, "Dati del documento"),
     h("label", { for: "dk" }, "Tipo"),
-    h("select", { id: "dk", onchange: () => { upName(); drawItems(); } }, h("option", { value: "auto", selected: true }, "Riconosci da solo"), Object.entries(KINDS).map(([k, l]) => h("option", { value: k }, l))),
+    h("select", { id: "dk", onchange: () => { if ($("dk").value === "foto" && filt !== "orig") { filt = "orig"; drawScan(); } upName(); drawItems(); } }, h("option", { value: "auto", selected: true }, "Riconosci da solo"), Object.entries(KINDS).map(([k, l]) => h("option", { value: k }, l))),
     h("label", { for: "dp" }, "Cliente / fornitore"), h("input", { id: "dp", list: "dl_dp", oninput: upName, placeholder: "Es. Elettroforniture Rossi" }), h("datalist", { id: "dl_dp" }, clients.map((c) => h("option", { value: c.name }))),
     h("label", { for: "dn" }, "Numero documento"), h("input", { id: "dn", oninput: upName, placeholder: "Es. 1245/2026" }),
     h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: isoDay(new Date()), onchange: upName }),
