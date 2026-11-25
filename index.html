@@ -19,7 +19,7 @@ p{margin:0 0 10px;line-height:1.45;color:#4E5A66}
 .logo img{width:100%;height:100%;object-fit:contain;background:#fff}
 .hero{border-bottom:4px solid #FFB800;background:linear-gradient(135deg,#02175A 0%,#0A2A8F 100%);color:#fff;border-radius:16px;padding:16px;margin:6px 0 4px;position:relative;overflow:hidden}
 .wkchip[data-on="1"]::before{content:"● ";color:#2E9E4F}
-.wkfab{position:fixed;right:14px;bottom:84px;width:54px;height:54px;border-radius:50%;padding:0;font-size:24px;background:#02175A;color:#fff;border:2px solid #FFB800;opacity:.9;z-index:6;box-shadow:0 2px 8px rgba(0,0,0,.25);touch-action:none;user-select:none;-webkit-user-select:none}.wkfab.off{background:#6B7580;opacity:.7}.wkfab.rec{background:#C62828;opacity:1}
+.wkfab{flex:0 0 64px;width:64px;height:64px;border-radius:50%;padding:0;font-size:28px;background:#02175A;color:#fff;border:3px solid #FFB800;touch-action:none;user-select:none;-webkit-user-select:none;margin-top:6px}.wkfab.off{background:#6B7580}.wkfab.rec{background:#C62828}
 .wktalk{width:100%;height:120px;font-size:20px;border-radius:18px;background:#02175A;color:#fff;margin:6px 0 12px;touch-action:none;user-select:none;-webkit-user-select:none;border-bottom:5px solid #FFB800}.wktalk.rec{background:#C62828;border-bottom-color:#FFB800}
 .hero .nm{font-size:18px;font-weight:700;line-height:22px}
 .hero .tg{font-size:12px;opacity:.8;margin-top:2px}
@@ -920,18 +920,13 @@ async function wkTalk(btn) {
   rec.start(); btn.classList.add("rec");
 }
 function wkRelease() { if (WK.rec && WK.rec.state === "recording") WK.rec.stop(); }
-function wkFab(visible) {
-  let f = document.getElementById("wkfab");
-  if (!f) {
-    f = h("button", { id: "wkfab", class: "wkfab", "aria-label": "Walkie-talkie" }, "🎙️");
-    f.addEventListener("contextmenu", (e) => e.preventDefault());
-    f.addEventListener("pointerdown", (e) => { if (lk("wk_on") === "1") { e.preventDefault(); if (!WK.ch) wkStart(); wkTalk(f); } });
-    for (const ev of ["pointerup", "pointercancel", "pointerleave"]) f.addEventListener(ev, wkRelease);
-    f.addEventListener("click", () => { if (lk("wk_on") !== "1") go({ t: "walkie" }); });
-    document.body.appendChild(f);
-  }
-  f.style.display = visible && S.p ? "" : "none";
-  f.classList.toggle("off", lk("wk_on") !== "1");
+function wkBtn() {
+  const f = h("button", { class: "wkfab" + (lk("wk_on") === "1" ? "" : " off"), "aria-label": "Walkie-talkie" }, "🎙️");
+  f.addEventListener("contextmenu", (e) => e.preventDefault());
+  f.addEventListener("pointerdown", (e) => { if (lk("wk_on") === "1") { e.preventDefault(); if (!WK.ch) wkStart(); wkTalk(f); } });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) f.addEventListener(ev, wkRelease);
+  f.addEventListener("click", () => { if (lk("wk_on") !== "1") go({ t: "walkie" }); });
+  return f;
 }
 async function walkieView() {
   const on = lk("wk_on") === "1", tm = (await team0()).filter((t) => t.id !== S.p.id);
@@ -1479,7 +1474,7 @@ async function render() {
     }
     if (my !== renderId) return;
     show(topbar(!!sub), nodes, sub ? null : navbar());
-    refreshBell(); wkFab(!sub && S.tab === "home");
+    refreshBell();
   } catch (e) {
     if (my !== renderId) return;
     show(topbar(false), h("h1", {}, "Qualcosa non va"), h("div", { class: "err" }, String(e.message || e)),
@@ -1492,7 +1487,7 @@ function topbar(isSub) {
     ["home", "jobs", "cal", "more"].includes(S.tab)
       ? h("span", { class: "muted", style: "display:flex;align-items:center;gap:8px" }, logoBox(28), S.p.companies?.name || "")
       : h("button", { class: "ghost", onclick: () => setTab("more") }, "← Menu"),
-    h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", style: "margin-right:14px", onclick: render }, "Aggiorna"), h("button", { class: "ghost", onclick: logout }, "Esci")));
+    h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
   const items = [["home", "🏠", "Home"], ["jobs", "🔧", "Lavori"], ["cal", "📅", "Agenda"], ["more", "☰", "Menu"]];
@@ -2747,8 +2742,11 @@ async function homeView() {
   const nodes = [
     h("div", { class: "hero" }, h("div", { style: "display:flex;align-items:center;gap:12px" }, logoBox(52), h("div", {}, h("div", { class: "nm" }, S.p.companies?.name || "La tua azienda"), h("div", { class: "tg" }, "Impianti elettrici · Sicurezza · Reti · Domotica"))),
       h("div", { class: "ico", "aria-hidden": "true" }, ["⚡", "🚪", "📹", "🚨", "🌐", "📡", "🏠"].map((x) => h("span", {}, x)))),
-    h("p", { class: "muted", style: "margin:8px 0 0;text-transform:capitalize" }, now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
-    h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!"),
+    h("div", { style: "display:flex;align-items:flex-start;justify-content:space-between;gap:10px" },
+      h("div", { style: "min-width:0" },
+        h("p", { class: "muted", style: "margin:8px 0 0;text-transform:capitalize" }, now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
+        h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!")),
+      wkBtn()),
     h("p", {}, today.length ? (open.length ? "Oggi hai " + open.length + (open.length === 1 ? " lavoro" : " lavori") + " in programma." : "Tutti i lavori di oggi sono completati. Ottimo!") : "Oggi non ci sono lavori in programma.")
   ];
   nodes.push(weatherCard(), chatCard());
