@@ -608,7 +608,7 @@ async function reportForm(sub) {
       return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, tidy), m.st);
     })(),
     h("label", {}, "Con chi eri"),
-    tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
+    tm.filter((t) => t.id !== S.p.id).length ? h("div", { class: "chips" }, tm.filter((t) => t.id !== S.p.id).map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
     h("h2", {}, "Materiale usato"), matBox,
     h("button", { class: "secondary", style: "width:100%", onclick: () => { mats.push({ desc: "", qty: null, unit: "", src: "nostro" }); drawMats(); } }, "+ Aggiungi materiale"),
     h("button", { class: "primary", onclick: async (e) => {
@@ -618,7 +618,7 @@ async function reportForm(sub) {
         const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro" }));
         if (!summary && !cm.length) throw new Error("Scrivi cosa hai fatto o il materiale usato");
         let jobId = $("r_job").value || null;
-        const row = { day, job_id: jobId, summary: summary || null, with_ids: [...withSet], materials: cm, minutes };
+        const row = { day, job_id: jobId, summary: summary || null, with_ids: [...withSet].filter((x) => x !== S.p.id), materials: cm, minutes };
         if (rep) chk(await sb.from("reports").update(row).eq("id", rep.id)); else chk(await sb.from("reports").insert({ ...row, company_id: S.p.company_id, user_id: S.p.id }));
         sk("rep_draft", "");
       });
@@ -676,7 +676,7 @@ async function urgentForm() {
     h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "u_from", type: "time", onchange: calc })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "u_to", type: "time", onchange: calc }))),
     h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "u_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calc }), tot,
     h("label", {}, "Con chi eri"),
-    tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip", onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
+    tm.filter((t) => t.id !== S.p.id).length ? h("div", { class: "chips" }, tm.filter((t) => t.id !== S.p.id).map((t) => { const b = h("button", { class: "chip", onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
     h("label", { style: "display:flex;gap:10px;align-items:center;margin-top:16px" }, h("input", { id: "u_back", type: "checkbox", style: "width:24px;height:24px" }), "↩️ Chiuso, ma c'è da tornare"),
     h("input", { id: "u_bn", placeholder: "Cosa resta da fare (facoltativo)" }),
     h("button", { class: "primary", onclick: async (e) => {
@@ -688,7 +688,7 @@ async function urgentForm() {
         const base = { company_id: S.p.company_id, client_id: cid, address: $("u_ad").value.trim() || (cl && cl.address) || null, created_by: S.p.id };
         const back2 = $("u_back").checked ? "↩️ DA TORNARE" + ($("u_bn").value.trim() ? ": " + $("u_bn").value.trim() : "") : null;
         const job = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + (nm ? nm + " — " : "") + what, description: back2, status: "done", start_at: new Date().toISOString() }).select().single());
-        chk(await sb.from("reports").insert({ company_id: S.p.company_id, user_id: S.p.id, day, job_id: job.id, summary: $("u_done").value.trim() || what, with_ids: [...withSet], materials: [], minutes }));
+        chk(await sb.from("reports").insert({ company_id: S.p.company_id, user_id: S.p.id, day, job_id: job.id, summary: $("u_done").value.trim() || what, with_ids: [...withSet].filter((x) => x !== S.p.id), materials: [], minutes }));
       });
       if (ok) back(); else e.target.disabled = false;
     } }, "Salva intervento")
