@@ -561,19 +561,30 @@ async function reportForm(sub) {
   };
   const stash = () => { if (rep) return; sk("rep_draft", JSON.stringify({ day: $("r_day") && $("r_day").value, job_id: $("r_job") && $("r_job").value, summary: $("r_sum") && $("r_sum").value, with_ids: [...withSet], materials: mats })); };
   const hoursBox = h("div", { class: "muted" }, "");
-  let minutes = rep ? rep.minutes : null;
+  let minutes = rep ? rep.minutes : null, manual = false;
   const calcHours = async () => {
     const d = $("r_day").value; if (!d) return;
     const a = new Date(d + "T00:00:00"), b = new Date(a.getTime() + 864e5);
     const rows = chk(await sb.from("time_entries").select("started_at,ended_at").eq("user_id", S.p.id).gte("started_at", a.toISOString()).lt("started_at", b.toISOString()));
     const ms = rows.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
-    minutes = rows.length ? Math.round(ms / 60000) : (rep ? rep.minutes : null);
+    if (!manual) minutes = rows.length ? Math.round(ms / 60000) : (rep ? rep.minutes : null);
     hoursBox.textContent = rows.length ? "Ore timbrate quel giorno: " + dur(ms) : "Nessuna timbratura quel giorno.";
+  };
+  const manBox = h("div", { style: "font-weight:700;margin:6px 0" }, rep && rep.minutes != null ? "Totale ore: " + dur(rep.minutes * 60000) : "");
+  const calcMan = () => {
+    const f = $("r_from").value, t = $("r_to").value; if (!f || !t) return;
+    const [fh, fm] = f.split(":").map(Number), [th, tm] = t.split(":").map(Number);
+    let m = (th * 60 + tm) - (fh * 60 + fm); if (m < 0) m += 1440;
+    m -= Math.max(0, Number($("r_brk").value) || 0); if (m < 0) m = 0;
+    manual = true; minutes = m; manBox.textContent = "Totale ore: " + dur(m * 60000);
   };
   setTimeout(() => { drawMats(); calcHours().catch(() => {}); }, 0);
   return [
     h("h1", {}, rep ? "Modifica rapportino" : "Rapportino di oggi"),
     h("label", { for: "r_day" }, "Giorno"), h("input", { id: "r_day", type: "date", value: pre.day || isoDay(new Date()), onchange: () => { calcHours().catch(() => {}); stash(); } }), hoursBox,
+    h("label", {}, "Ore di lavoro (facoltativo)"),
+    h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "r_from", type: "time", onchange: calcMan })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "r_to", type: "time", onchange: calcMan }))),
+    h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "r_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calcMan }), manBox,
     h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title))),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
     (() => {
