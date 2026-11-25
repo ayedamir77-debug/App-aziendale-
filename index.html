@@ -138,6 +138,7 @@ const toInput = (s) => { if (!s) return ""; const d = new Date(s); d.setMinutes(
 const fromInput = (v) => (v ? new Date(v).toISOString() : null);
 const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return Math.floor(m / 60) + "h " + String(m % 60).padStart(2, "0") + "m"; };
 const money = (n) => Number(n).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
+const addrLink = (a) => h("div", { class: "muted" }, h("a", { href: mapsUrl(a), target: "_blank", rel: "noopener", style: "color:inherit;text-decoration:underline", onclick: (e) => e.stopPropagation() }, "📍 " + a));
 const mapsUrl = (a) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(a);
 const telUrl = (p) => "tel:" + String(p).replace(/[^\d+]/g, "");
 const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; };
@@ -1212,7 +1213,7 @@ async function radioView() {
 async function searchView() {
   const out = h("div"), inp = h("input", { placeholder: "Cerca lavori, clienti, documenti, manuali…", value: S.gq || "" });
   const sec = (title, arr) => arr.length ? [h("h2", {}, title), arr] : null;
-  const item = (t, sub, fn) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: fn }, h("strong", {}, t), sub ? h("div", { class: "muted" }, sub) : null);
+  const item = (t, sub, fn, addr) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: fn }, h("strong", {}, t), sub ? h("div", { class: "muted" }, sub) : null, addr ? addrLink(addr) : null);
   const run = async () => {
     const t = clean(inp.value); S.gq = inp.value; if (t.length < 2) { out.replaceChildren(h("p", { class: "muted" }, "Scrivi almeno 2 lettere.")); return; }
     out.replaceChildren(h("p", { class: "muted" }, "Cerco…"));
@@ -1223,7 +1224,7 @@ async function searchView() {
       q("documents", "id,title,file_name,file_path,counterparty,kind", ["title", "file_name", "counterparty", "ocr_text", "doc_number"]), q("library", "id,title,brand,model,file_path,url", ["title", "brand", "model", "note", "ocr_text"]),
       q("stock", "id,description,code,quantity,unit", ["description", "code", "location"]), q("assets", "id,title", ["title", "notes", "address_url"]), q("reports", "id,day,summary", ["summary"]), q("posts", "id,body", ["body"])]);
     const nodes = [
-      sec("Lavori", jobs.map((j) => item(j.title, j.address, () => go({ t: "job", id: j.id })))), sec("Clienti", cl.map((c) => item(c.name, [c.phone, c.address].filter(Boolean).join(" · "), () => go({ t: "client", id: c.id })))),
+      sec("Lavori", jobs.map((j) => item(j.title, null, () => go({ t: "job", id: j.id }), j.address))), sec("Clienti", cl.map((c) => item(c.name, c.phone, () => go({ t: "client", id: c.id }), c.address))),
       sec("Documenti", docs.map((d) => item(d.file_name || d.title || "Documento", [KINDS[d.kind], d.counterparty].filter(Boolean).join(" · "), () => openDoc(d)))),
       sec("Biblioteca tecnica", lib.map((l) => item(l.title, [l.brand, l.model].filter(Boolean).join(" "), () => (l.file_path ? openDoc(l) : l.url ? window.open(l.url, "_blank") : go({ t: "libForm", id: l.id }))))),
       sec("Magazzino", stock.map((s) => item(s.description, (s.code ? s.code + " · " : "") + Number(s.quantity) + (s.unit ? " " + s.unit : ""), () => go({ t: "stockForm", id: s.id })))), sec("Schede impianto", assets.map((a) => item(a.title, "", () => go({ t: "assetForm", id: a.id })))),
@@ -1558,7 +1559,7 @@ function jobCard(j) {
     h("div", { class: "row" }, h("span", { class: "when" }, j.start_at ? fDate(j.start_at) + " · " + fTime(j.start_at) + (j.end_at ? "–" + fTime(j.end_at) : "") : "Senza data"), badge(j.status)),
     h("div", { class: "title" }, jobIcon(j.title) + " " + j.title),
     j.clients?.name ? h("div", { class: "muted" }, j.clients.name) : null,
-    j.address ? h("div", { class: "muted" }, j.address) : null,
+    j.address ? addrLink(j.address) : null,
     names ? h("div", { class: "muted", style: "margin-top:4px" }, "👷 " + names) : null);
 }
 async function jobsView() {
@@ -1779,7 +1780,7 @@ async function clientsView() {
     h("button", { class: "secondary", style: "width:100%;margin:8px 0 12px", onclick: () => { S.draft.clientQ = $("cq").value; render(); } }, "Cerca"),
     h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "clientForm" }) }, "+ Nuovo cliente"),
     list.length ? list.map((c) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "client", id: c.id }) },
-      h("div", { class: "title", style: "margin-top:0" }, c.name), c.phone ? h("div", { class: "muted" }, c.phone) : null, c.address ? h("div", { class: "muted" }, c.address) : null)) : h("p", {}, "Nessun cliente.")
+      h("div", { class: "title", style: "margin-top:0" }, c.name), c.phone ? h("div", { class: "muted" }, c.phone) : null, c.address ? addrLink(c.address) : null)) : h("p", {}, "Nessun cliente.")
   ];
 }
 async function clientView(id) {
