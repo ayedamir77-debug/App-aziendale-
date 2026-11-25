@@ -1132,9 +1132,17 @@ async function tplsView() {
 }
 
 /* ---------- costo e guadagno del lavoro (titolare) ---------- */
+/* ore di un lavoro: dai rapportini (minuti × persone) se ci sono, altrimenti dalle timbrature */
+async function jobMs(j) {
+  let rm = 0;
+  try { const rr = chk(await sb.from("reports").select("minutes,with_ids").eq("job_id", j.id).not("minutes", "is", null)); rm = rr.reduce((a, r) => a + r.minutes * (1 + (r.with_ids || []).length), 0); } catch { /* ignora */ }
+  if (rm > 0) return rm * 60000;
+  const te = chk(await sb.from("time_entries").select("started_at,ended_at").eq("job_id", j.id));
+  return te.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
+}
 async function jobCostCard(j, docs) {
-  const [te, inv] = await Promise.all([sb.from("time_entries").select("started_at,ended_at").eq("job_id", j.id).then(chk), sb.from("invoices").select("total,direction").eq("job_id", j.id).eq("direction", "emessa").then(chk)]);
-  const ms = te.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0), rate = Number(co().hourly_cost) || 0;
+  const [ms, inv] = await Promise.all([jobMs(j), sb.from("invoices").select("total,direction").eq("job_id", j.id).eq("direction", "emessa").then(chk)]);
+  const rate = Number(co().hourly_cost) || 0;
   const labor = r2(ms / 3600000 * rate), mat = r2(docs.filter((d) => ["fattura", "scontrino"].includes(d.kind) && d.amount != null).reduce((s, d) => s + Number(d.amount), 0)), rev = r2(inv.reduce((s, i) => s + Number(i.total), 0)), cost = r2(labor + mat);
   const line = (l, v, b) => h("div", { class: "row", style: "padding:3px 0" }, h("span", { class: b ? "" : "muted" }, l), b ? h("strong", {}, v) : h("span", {}, v));
   return [h("h2", {}, "Costo e guadagno"), h("div", { class: "card" },
@@ -1146,7 +1154,7 @@ async function jobCostCard(j, docs) {
 /* ---------- firma cliente e rapporto PDF ---------- */
 async function signoffView(sub) {
   const j = chk(await sb.from("jobs").select("*, clients(*)").eq("id", sub.job).single()), mats = chk(await sb.from("job_materials").select("*").eq("job_id", j.id).order("created_at"));
-  const te = chk(await sb.from("time_entries").select("started_at,ended_at").eq("job_id", j.id)), ms = te.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
+  const ms = await jobMs(j);
   const cv = h("canvas", { width: "600", height: "260", style: "width:100%;height:auto;background:#fff;border:1px solid #C9D0D6;border-radius:10px;touch-action:none" });
   const g = cv.getContext("2d"); g.lineWidth = 3; g.lineCap = "round"; g.strokeStyle = "#14202B"; let drawing = false, signed = false;
   const pt = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
