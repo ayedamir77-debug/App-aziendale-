@@ -639,7 +639,10 @@ async function urgentView() {
     j.clients?.name ? h("div", { class: "muted" }, j.clients.name) : null,
     j.address ? addrLink(j.address) : null,
     isBack(j) ? h("div", { class: "note", style: "margin-top:8px" }, "↩️ " + (note(j) || "C'è da tornare"),
-      h("button", { class: "secondary", style: "width:100%;margin-top:8px", onclick: async (e) => { e.stopPropagation(); if (await attempt(async () => { chk(await sb.from("jobs").update({ description: (j.description || "").replace(/↩️ DA TORNARE:?.*/, "").trim() || null }).eq("id", j.id)); })) render(); } }, "✔ Fatto, non serve più tornare")) : null);
+      h("button", { class: "secondary", style: "width:100%;margin-top:8px", onclick: async (e) => { e.stopPropagation(); if (await attempt(async () => { chk(await sb.from("jobs").update({ description: (j.description || "").replace(/↩️ DA TORNARE:?.*/, "").trim() || null }).eq("id", j.id)); })) render(); } }, "✔ Fatto, non serve più tornare")) : null,
+    h("div", { class: "btns", style: "margin-top:8px" },
+      h("button", { class: "secondary", onclick: (e) => { e.stopPropagation(); sk("rep_draft", JSON.stringify({ day: isoDay(new Date()), job_id: j.id, summary: "", with_ids: [], materials: [] })); go({ t: "reportForm" }); } }, "➕ Nuova visita"),
+      OWNER() && !j.client_id && / — /.test(j.title) ? h("button", { class: "secondary", onclick: async (e) => { e.stopPropagation(); const nm = j.title.replace(/^🚨\s*/, "").split(" — ")[0].trim(); if (!confirm("Salvare «" + nm + "» tra i clienti?")) return; if (await attempt(async () => { const c = chk(await sb.from("clients").insert({ company_id: S.p.company_id, name: nm, address: j.address || null }).select().single()); chk(await sb.from("jobs").update({ client_id: c.id }).eq("id", j.id)); })) render(); } }, "👤 Salva tra i clienti") : null));
   return [
     h("h1", {}, "🚨 Interventi urgenti"),
     h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "urgentForm" }) }, "+ Nuovo intervento urgente"),
