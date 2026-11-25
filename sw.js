@@ -2,7 +2,7 @@
 // Pagina e file dell'app: prima la rete (così gli aggiornamenti arrivano subito), se manca la rete usa la copia salvata.
 // Librerie esterne (Supabase, OCR, PDF): copia salvata, aggiornata in sottofondo.
 // Le chiamate ai dati (Supabase) non vengono mai salvate.
-const CACHE = 'app-azienda-v5';
+const CACHE = 'app-azienda-v6';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil((async () => {
   for (const k of await caches.keys()) if (k !== CACHE) await caches.delete(k);
@@ -25,4 +25,18 @@ self.addEventListener('fetch', (e) => {
       return hit || net;
     })());
   }
+});
+
+// Notifiche push (anche a telefono bloccato)
+self.addEventListener('push', (e) => {
+  let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data && e.data.text() }; }
+  e.waitUntil(self.registration.showNotification(d.title || 'Light Project', { body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' }, tag: d.tag || undefined, renotify: !!d.tag }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of all) { if ('focus' in c) return c.focus(); }
+    return clients.openWindow((e.notification.data && e.notification.data.url) || './');
+  })());
 });

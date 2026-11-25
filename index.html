@@ -803,7 +803,7 @@ async function postsView() {
 async function leaveView() {
   const rows = chk(await sb.from("leave_requests").select("*").order("from_date", { ascending: false }).limit(60));
   await loadTeam();
-  const L = { richiesta: "In attesa", ok: "Approvata", no: "Rifiutata" }, decide = async (r, st) => { if (await attempt(async () => { chk(await sb.from("leave_requests").update({ status: st }).eq("id", r.id)); })) render(); };
+  const L = { richiesta: "In attesa", ok: "Approvata", no: "Rifiutata" }, decide = async (r, st) => { if (await attempt(async () => { chk(await sb.from("leave_requests").update({ status: st }).eq("id", r.id)); if (r.user_id) pushNotify([r.user_id], st === "ok" ? "✅ Richiesta approvata" : "❌ Richiesta rifiutata", "Ferie/permesso"); })) render(); };
   const fd = (d) => new Date(d + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" });
   return [h("h1", {}, "Ferie e permessi"),
     h("div", { class: "card" },
@@ -951,8 +951,49 @@ async function walkieView() {
       h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-weight:500" }, awake, "Tieni lo schermo acceso (consuma più batteria)")),
     h("div", { class: "note" }, "Tieni premuto il tasto mentre parli e lascia quando hai finito: la voce arriva subito a tutti i colleghi che hanno il walkie-talkie attivo. Funziona con l'app aperta sullo schermo; con il telefono bloccato o l'app chiusa non esce la voce. Max 25 secondi a messaggio.")];
 }
+/* ---------- notifiche sul telefono (push) ---------- */
+const PUSHFN = "send-push";
+const b64u = (b) => { const r = atob((b + "=".repeat((4 - b.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
+async function pushCall(body) {
+  const { data, error } = await sb.functions.invoke(PUSHFN, { body });
+  if (error) { let m = error.message || String(error); try { const j = await error.context.json(); if (j && j.error) m = j.error; } catch { /* nessun dettaglio */ } throw new Error(m); }
+  if (data && data.error) throw new Error(data.error);
+  return data;
+}
+function pushSupported() { return "serviceWorker" in navigator && "PushManager" in window && "Notification" in window; }
+async function pushIsOn() {
+  if (!pushSupported() || Notification.permission !== "granted") return false;
+  try { const reg = await navigator.serviceWorker.ready; return !!(await reg.pushManager.getSubscription()); } catch { return false; }
+}
+async function pushOn() {
+  if (!pushSupported()) throw new Error("Questo telefono o browser non supporta le notifiche. Prova a installare l'app dalla schermata Home.");
+  const perm = await Notification.requestPermission();
+  if (perm !== "granted") throw new Error("Hai negato il permesso. Riattivalo dalle impostazioni del sito (lucchetto accanto all'indirizzo).");
+  const reg = await navigator.serviceWorker.ready;
+  const { key } = await pushCall({ task: "key" });
+  let sub = await reg.pushManager.getSubscription();
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: b64u(key) });
+  const j = sub.toJSON();
+  chk(await sb.from("push_subs").upsert({ user_id: S.p.id, company_id: S.p.company_id, endpoint: j.endpoint, p256dh: j.keys.p256dh, auth: j.keys.auth }, { onConflict: "endpoint" }));
+}
+async function pushOff() {
+  try { const reg = await navigator.serviceWorker.ready; const sub = await reg.pushManager.getSubscription(); if (sub) { await sb.from("push_subs").delete().eq("endpoint", sub.endpoint); await sub.unsubscribe(); } } catch { /* ignora */ }
+}
+/* manda una notifica ai colleghi (to = "tutti" oppure elenco di id); non blocca mai l'app */
+function pushNotify(to, title, body) {
+  try { pushCall({ task: "send", to: to === "tutti" ? null : to, title, body, url: "./" }).catch(() => {}); } catch { /* ignora */ }
+}
 async function profileView() {
+  const pst = h("p", { class: "muted", style: "margin:8px 0" }, "Controllo…");
+  const pbtn = h("button", { class: "secondary", style: "width:100%" }, "…");
+  const ptest = h("button", { class: "ghost", style: "display:none" }, "Mandami una notifica di prova");
+  const refresh = async () => { const on = await pushIsOn(); pst.textContent = !pushSupported() ? "Non disponibile su questo telefono/browser." : on ? "✅ Attive su questo telefono" : (Notification.permission === "denied" ? "Bloccate dal telefono: riattivale dalle impostazioni del sito." : "Non attive"); pbtn.textContent = on ? "Spegni le notifiche" : "Attiva le notifiche"; ptest.style.display = on ? "" : "none"; };
+  pbtn.onclick = async () => { pbtn.disabled = true; await attempt(async () => { if (await pushIsOn()) await pushOff(); else await pushOn(); }); pbtn.disabled = false; refresh(); };
+  ptest.onclick = async () => { await attempt(async () => { const r = await pushCall({ task: "send", to: [S.p.id], includeSelf: true, title: "Light Project", body: "Notifica di prova: funziona! 🎉" }); if (!r.tried) throw new Error("Nessun telefono registrato: attiva prima le notifiche."); }); };
+  setTimeout(refresh, 0);
   return [h("h1", {}, "Il mio profilo"),
+    h("div", { class: "card" }, h("strong", {}, "🔔 Notifiche sul telefono"), pst, pbtn, ptest,
+      h("p", { class: "muted", style: "margin:8px 0 0" }, "Ti avvisano di chat, lavori assegnati e ferie anche con l'app chiusa e il telefono bloccato.")),
     h("div", { class: "card" },
       h("label", { for: "pn", style: "margin-top:0" }, "Il tuo nome"), h("input", { id: "pn", value: S.p.full_name || "" }),
       h("div", { class: "muted", style: "margin-top:10px" }, "Ruolo: " + (OWNER() ? "titolare" : "dipendente")),
@@ -1387,7 +1428,7 @@ function chatBox(limit, tall) {
   async function send() {
     const body = inp.value.trim(); if (!body) return;
     inp.value = ""; 
-    try { chk(await sb.from("chat_messages").insert({ company_id: S.p.company_id, user_id: S.p.id, body })); await load(); } catch (e) { inp.value = body; alert(translate(e.message || e)); }
+    try { chk(await sb.from("chat_messages").insert({ company_id: S.p.company_id, user_id: S.p.id, body })); pushNotify("tutti", "💬 " + (S.p.full_name || "Chat"), body.slice(0, 120)); await load(); } catch (e) { inp.value = body; alert(translate(e.message || e)); }
   }
   inp.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); send(); } });
   load();
@@ -1633,6 +1674,7 @@ async function jobForm(id) {
         const ids = [...document.querySelectorAll(".as")].filter((c) => c.checked).map((c) => c.value);
         chk(await sb.from("job_assignments").delete().eq("job_id", jobId));
         if (ids.length) chk(await sb.from("job_assignments").insert(ids.map((u) => ({ job_id: jobId, user_id: u }))));
+        const fresh = ids.filter((u) => !assigned.has(u) && u !== S.p.id); if (fresh.length) pushNotify(fresh, "🔧 Nuovo lavoro per te", title);
       });
       if (ok) { S.jobFilter = "open"; back(); } else e.target.disabled = false;
     } }, "Salva lavoro")
