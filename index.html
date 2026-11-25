@@ -1075,6 +1075,8 @@ function deepLink(n) {
 try {
   const q0 = new URLSearchParams(location.search).get("n");
   if (q0) { history.replaceState(null, "", location.pathname); setTimeout(() => deepLink(q0), 900); }
+  const clearNotifs = async () => { try { const reg = await navigator.serviceWorker.ready; (await reg.getNotifications()).forEach((n) => n.close()); } catch { /* ignora */ } };
+  if ("serviceWorker" in navigator) { clearNotifs(); document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") clearNotifs(); }); }
   if ("serviceWorker" in navigator) navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && e.data.go) deepLink(e.data.go); });
 } catch { /* ignora */ }
 async function profileView() {
