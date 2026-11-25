@@ -2,7 +2,7 @@
 // Pagina e file dell'app: prima la rete (così gli aggiornamenti arrivano subito), se manca la rete usa la copia salvata.
 // Librerie esterne (Supabase, OCR, PDF): copia salvata, aggiornata in sottofondo.
 // Le chiamate ai dati (Supabase) non vengono mai salvate.
-const CACHE = 'app-azienda-v6';
+const CACHE = 'app-azienda-v7';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil((async () => {
   for (const k of await caches.keys()) if (k !== CACHE) await caches.delete(k);
@@ -28,15 +28,27 @@ self.addEventListener('fetch', (e) => {
 });
 
 // Notifiche push (anche a telefono bloccato)
+const STILI = {
+  chat: { vibrate: [120, 60, 120], tag: 'chat' },
+  lavoro: { vibrate: [250, 100, 250, 100, 250], tag: 'lavoro' },
+  ferie: { vibrate: [200], tag: 'ferie' },
+  test: { vibrate: [100, 50, 100] }
+};
+const tipoDa = (u) => { try { return new URL(u, self.location.href).searchParams.get('n') || ''; } catch { return ''; } };
 self.addEventListener('push', (e) => {
   let d = {}; try { d = e.data ? e.data.json() : {}; } catch { d = { body: e.data && e.data.text() }; }
-  e.waitUntil(self.registration.showNotification(d.title || 'Light Project', { body: d.body || '', icon: 'icon-192.png', badge: 'icon-192.png', data: { url: d.url || './' }, tag: d.tag || undefined, renotify: !!d.tag }));
+  const t = tipoDa(d.url || ''), st = STILI[t] || {};
+  e.waitUntil(self.registration.showNotification(d.title || 'Light Project', {
+    body: d.body || '', icon: 'icon-192.png', badge: 'badge-96.png', vibrate: st.vibrate, tag: st.tag, renotify: !!st.tag,
+    actions: t ? [{ action: 'open', title: 'Apri' }] : [], data: { url: d.url || './', n: t }
+  }));
 });
 self.addEventListener('notificationclick', (e) => {
   e.notification.close();
+  const n = (e.notification.data && e.notification.data.n) || '';
   e.waitUntil((async () => {
     const all = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-    for (const c of all) { if ('focus' in c) return c.focus(); }
+    for (const c of all) { if ('focus' in c) { c.postMessage({ go: n }); return c.focus(); } }
     return clients.openWindow((e.notification.data && e.notification.data.url) || './');
   })());
 });
