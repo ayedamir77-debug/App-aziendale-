@@ -1400,7 +1400,7 @@ async function jobsView() {
   const chip = (k, l) => h("button", { class: "chip" + (S.jobFilter === k ? " on" : ""), onclick: () => { S.jobFilter = k; render(); } }, l);
   return [
     h("h1", {}, OWNER() ? "Lavori" : "I miei lavori"),
-    h("div", { class: "chips" }, chip("open", "Aperti"), chip("done", "Completati"), chip("all", "Tutti")),
+    h("div", { class: "chips" }, chip("open", "Aperti"), chip("done", "📦 Archivio"), chip("all", "Tutti")),
     OWNER() ? h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "jobForm" }) }, "+ Nuovo lavoro") : null,
     list.length ? list.map(jobCard) : h("p", {}, OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro assegnato per ora.")
   ];
@@ -1434,7 +1434,8 @@ async function jobView(id) {
     h("h2", {}, "Avanzamento"),
     h("div", { class: "card" },
       h("label", { for: "st", style: "margin-top:0" }, "Stato"),
-      h("select", { id: "st" }, ["todo", "doing", "done"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
+      h("select", { id: "st", onchange: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); if ($("st").value === "done") { S.jobFilter = "open"; back(); } }) }, ["todo", "doing", "done"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
+      h("p", { class: "muted", style: "margin:6px 0 0" }, "Quando scegli «Completato» il lavoro si salva da solo e va nell'📦 Archivio."),
       h("label", { for: "fn" }, "Note dal cantiere"),
       h("textarea", { id: "fn", rows: "3", placeholder: "Cosa hai fatto, problemi, cose da ricordare…" }, j.field_notes || ""),
       h("button", { class: "primary", style: "margin-top:12px", onclick: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); }) }, "Salva avanzamento")),
