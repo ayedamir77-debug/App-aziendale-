@@ -1412,7 +1412,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, urgent: urgentView, urgentForm, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, urgent: urgentView, urgentForm, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
@@ -1921,11 +1921,38 @@ async function clientForm(id) {
 }
 
 /* ---------- documenti ---------- */
-async function openDoc(d) {
-  const w = window.open("", "_blank");
-  const { data, error } = await sb.storage.from("docs").createSignedUrl(d.file_path, 600);
-  if (error || !data) { if (w) w.close(); alert("Impossibile aprire il file."); return; }
-  if (w) w.location.href = data.signedUrl; else location.href = data.signedUrl;
+async function openDoc(d) { go({ t: "docView", d }); }
+async function downloadDoc(d) {
+  const { data, error } = await sb.storage.from("docs").createSignedUrl(d.file_path, 600, { download: d.file_name || d.title || true });
+  if (error || !data) { alert("Impossibile scaricare il file."); return; }
+  location.href = data.signedUrl;
+}
+async function docView(sub) {
+  const d = sub.d, host = h("div", { style: "margin-top:12px" }, h("p", { class: "muted" }, "Apro il file…"));
+  setTimeout(async () => {
+    try {
+      const { data, error } = await sb.storage.from("docs").createSignedUrl(d.file_path, 600);
+      if (error || !data) throw new Error("Impossibile aprire il file.");
+      const isPdf = /pdf$/i.test(d.file_path || "") || /pdf/i.test(d.mime || "");
+      if (!isPdf) {
+        if (/\.(jpe?g|png|webp|gif)$/i.test(d.file_path || "") || /^image\//.test(d.mime || "")) { host.replaceChildren(h("img", { src: data.signedUrl, alt: d.title || "", style: "width:100%;border-radius:10px" })); return; }
+        host.replaceChildren(h("p", { class: "muted" }, "Questo tipo di file non si può mostrare qui. Usa Scarica.")); return;
+      }
+      const L = await pdfLib(), blob = await (await fetch(data.signedUrl)).arrayBuffer(), pdf = await L.getDocument({ data: new Uint8Array(blob) }).promise;
+      host.replaceChildren();
+      const W = Math.min(window.innerWidth - 32, 900) * (window.devicePixelRatio > 1 ? 1.6 : 1.2);
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const pg = await pdf.getPage(i), v0 = pg.getViewport({ scale: 1 }), v = pg.getViewport({ scale: W / v0.width });
+        const cv = document.createElement("canvas"); cv.width = v.width; cv.height = v.height; cv.style.cssText = "width:100%;height:auto;border:1px solid #DDE2E6;border-radius:8px;margin-bottom:10px;background:#fff";
+        host.append(cv); await pg.render({ canvasContext: cv.getContext("2d"), viewport: v }).promise;
+      }
+    } catch (e) { host.replaceChildren(h("p", { class: "note" }, e.message || "Impossibile aprire il file.")); }
+  }, 0);
+  return [
+    h("h1", { style: "font-size:18px;word-break:break-all" }, d.title || d.file_name || "Documento"),
+    h("div", { class: "btns" }, h("button", { class: "primary", style: "margin:0", onclick: () => downloadDoc(d) }, "⬇️ Scarica"), h("button", { class: "secondary", onclick: () => back() }, "Chiudi")),
+    host
+  ];
 }
 /* ---------- lettura documenti (OCR), nomi standard, ZIP ---------- */
 const TESS_SRC = "https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js";
