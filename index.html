@@ -448,7 +448,7 @@ function moreView() {
     group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Schede impianto", G("assets")), sq("📦", "Magazzino", G("stock"))]),
     group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
     group("Mezzi e scadenze", [sq("🚐", "Mezzi", G("vehicles")), sq("🛠️", "Garanzie e manutenzioni", G("warr"))]),
-    group("Strumenti", [sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
+    group("Strumenti", [sq("👤", "Il mio profilo", G("profile")), sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
   ];
 }
 
@@ -868,6 +868,18 @@ async function jobChecklists(j) {
         h("button", { class: "ghost", style: "color:#A32121;font-size:13px", onclick: async () => { if (confirm("Eliminare la checklist?") && await attempt(async () => { chk(await sb.from("job_checklists").delete().eq("id", c.id)); })) render(); } }, "Elimina checklist")); }),
     sel];
 }
+async function profileView() {
+  return [h("h1", {}, "Il mio profilo"),
+    h("div", { class: "card" },
+      h("label", { for: "pn", style: "margin-top:0" }, "Il tuo nome"), h("input", { id: "pn", value: S.p.full_name || "" }),
+      h("div", { class: "muted", style: "margin-top:10px" }, "Email: " + (S.p.email || "")),
+      h("div", { class: "muted" }, "Ruolo: " + (OWNER() ? "titolare" : "dipendente")),
+      h("button", { class: "primary", onclick: async (e) => {
+        e.target.disabled = true;
+        const ok = await attempt(async () => { const n = $("pn").value.trim(); if (!n) throw new Error("Scrivi un nome"); chk(await sb.rpc("set_my_name", { p_name: n })); S.p.full_name = n; S.team = []; });
+        if (ok) back(); else e.target.disabled = false;
+      } }, "Salva il nome"))];
+}
 async function tplsView() {
   const custom = chk(await sb.from("checklists").select("*").order("name"));
   return [h("h1", {}, "Modelli di checklist"), h("p", {}, "Poi li aggiungi da dentro un lavoro. Quelli già pronti: " + BUILTIN_TPL.map((t) => t.name).join(", ") + "."),
@@ -1154,7 +1166,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
