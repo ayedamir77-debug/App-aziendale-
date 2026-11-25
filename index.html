@@ -1888,6 +1888,22 @@ async function clientsView() {
 async function clientView(id) {
   const c = chk(await sb.from("clients").select("*").eq("id", id).single());
   const jobs = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").eq("client_id", id).order("start_at", { ascending: false }));
+  await loadTeam();
+  let sum = null;
+  if (jobs.length) {
+    try {
+      const rr = chk(await sb.from("reports").select("minutes,user_id,with_ids,materials").in("job_id", jobs.map((x) => x.id)));
+      const mats = {}, per = {}; let tot = 0;
+      for (const r of rr) {
+        if (r.minutes != null) { tot += r.minutes; for (const u of ((r.with_ids && r.with_ids.length) ? r.with_ids : [r.user_id])) per[u] = (per[u] || 0) + r.minutes; }
+        for (const m of (Array.isArray(r.materials) ? r.materials : [])) {
+          const k = (m.desc || "").trim().toLowerCase() + "|" + (m.unit || "").trim().toLowerCase(); if (!m.desc) continue;
+          const e = mats[k] = mats[k] || { desc: m.desc.trim(), unit: (m.unit || "").trim(), qty: 0, hasQty: false }; if (m.qty != null) { e.qty += Number(m.qty); e.hasQty = true; }
+        }
+      }
+      sum = { rr, tot, per: Object.entries(per).sort((a, b) => b[1] - a[1]), mats: Object.values(mats).sort((a, b) => a.desc.localeCompare(b.desc)) };
+    } catch { sum = null; }
+  }
   return [
     h("h1", {}, c.name),
     h("div", { class: "card" },
@@ -1896,6 +1912,10 @@ async function clientView(id) {
       c.address ? h("div", {}, h("a", { class: "link", href: mapsUrl(c.address), target: "_blank", rel: "noopener" }, "🗺️ " + c.address)) : null,
       c.notes ? h("p", { style: "white-space:pre-wrap;margin-top:8px" }, c.notes) : null,
       !c.phone && !c.email && !c.address && !c.notes ? h("p", {}, "Nessun dettaglio.") : null),
+    sum && sum.rr.length ? [h("h2", {}, "Riassunto"), h("div", { class: "card" },
+      h("div", { class: "row" }, h("strong", {}, "Ore totali"), h("strong", {}, dur(sum.tot * 60000))),
+      sum.per.length ? [h("div", { class: "muted", style: "margin-top:8px" }, "Per persona"), sum.per.map(([u, m]) => h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, who(u)), h("span", {}, dur(m * 60000))))] : null,
+      sum.mats.length ? [h("div", { class: "muted", style: "margin-top:12px" }, "Materiale usato (totale)"), sum.mats.map((m) => h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, m.desc), h("span", { class: "muted" }, m.hasQty ? (Math.round(m.qty * 100) / 100) + (m.unit ? " " + m.unit : "") : "—")))] : h("div", { class: "muted", style: "margin-top:12px" }, "Nessun materiale nei rapportini."))] : null,
     h("h2", {}, "Lavori di questo cliente"),
     jobs.length ? jobs.map(jobCard) : h("p", {}, "Nessun lavoro."),
     h("h2", {}, "Rapportini dei suoi lavori"), await repList(jobs.map((x) => x.id), "Nessun rapportino."),
