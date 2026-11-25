@@ -2403,26 +2403,53 @@ async function docForm(jobId) {
 
 /* ---------- ore ---------- */
 async function hoursView() {
-  const since = monthStart().toISOString();
-  const entries = chk(await sb.from("time_entries").select("*, jobs(title)").gte("started_at", since).order("started_at", { ascending: false }));
-  const open = entries.find((e) => !e.ended_at);
+  const now = new Date(), cur = S.hMonth || new Date(now.getFullYear(), now.getMonth(), 1);
+  const a = new Date(cur.getFullYear(), cur.getMonth(), 1), z = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+  const isNow = a.getFullYear() === now.getFullYear() && a.getMonth() === now.getMonth();
+  const entries = chk(await sb.from("time_entries").select("*, jobs(title)").gte("started_at", a.toISOString()).lt("started_at", z.toISOString()).order("started_at", { ascending: false }));
+  const open = chk(await sb.from("time_entries").select("*, jobs(title)").is("ended_at", null)).find((e) => e.user_id === S.p.id) || entries.find((e) => !e.ended_at);
   const myJobs = chk(await sb.from("jobs").select("id,title").neq("status", "done").order("start_at", { nullsFirst: false }));
-  const total = entries.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
-  let repMin = 0, repN = 0;
-  try { const rr0 = chk(await sb.from("reports").select("minutes,user_id,with_ids").gte("day", isoDay(monthStart())).not("minutes", "is", null).or("user_id.eq." + S.p.id + ",with_ids.cs.{" + S.p.id + "}")), rr = rr0.filter((r) => (r.with_ids && r.with_ids.length) ? r.with_ids.includes(S.p.id) : r.user_id === S.p.id); repN = rr.length; repMin = rr.reduce((a, r) => a + r.minutes, 0); } catch { /* ignora */ }
+  let reps = [];
+  try { reps = chk(await sb.from("reports").select("id,day,minutes,user_id,with_ids,summary,jobs(title,clients(name))").gte("day", isoDay(a)).lt("day", isoDay(z)).not("minutes", "is", null).or("user_id.eq." + S.p.id + ",with_ids.cs.{" + S.p.id + "}")).filter((r) => (r.with_ids && r.with_ids.length) ? r.with_ids.includes(S.p.id) : r.user_id === S.p.id); } catch { /* ignora */ }
+  /* giorni: le ore dei rapportini hanno la precedenza, altrimenti le timbrature */
+  const days = {};
+  const dayOf = (k) => (days[k] = days[k] || { k, rep: 0, clk: 0, items: [] });
+  for (const r of reps) { const d = dayOf(r.day); d.rep += r.minutes; d.items.push({ ico: "📝", t: (r.jobs && r.jobs.title ? (r.jobs.clients && r.jobs.clients.name ? r.jobs.clients.name + " · " : "") + r.jobs.title : "Rapportino"), m: r.minutes }); }
+  for (const e of entries) { if (e.user_id && e.user_id !== S.p.id) continue; const ms = (e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at), d = dayOf(isoDay(D(e.started_at))); d.clk += Math.round(ms / 60000); d.items.push({ ico: "⏱", t: fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs && e.jobs.title ? " · " + e.jobs.title : ""), m: Math.round(ms / 60000), clk: true, lat: e.in_lat, lng: e.in_lng }); }
+  const dm = (d) => d.rep > 0 ? d.rep : d.clk;
+  const keys = Object.keys(days).sort().reverse();
+  const monday = (k) => { const x = new Date(k + "T12:00:00"); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return isoDay(x); };
+  const weeks = {}; for (const k of keys) (weeks[monday(k)] = weeks[monday(k)] || []).push(days[k]);
+  const monthMin = keys.reduce((s, k) => s + dm(days[k]), 0), nDays = keys.filter((k) => dm(days[k]) > 0).length;
+  const wk0 = monday(isoDay(now)), weekMin = (weeks[wk0] || []).reduce((s, d) => s + dm(d), 0), todayMin = days[isoDay(now)] ? dm(days[isoDay(now)]) : 0;
+  const D2 = (m) => dur(m * 60000);
+  const fmtD = (k) => new Date(k + "T12:00:00").toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "short" });
+  const fmtW = (k) => { const s = new Date(k + "T12:00:00"), e = new Date(s); e.setDate(e.getDate() + 6); return "Settimana " + s.getDate() + (s.getMonth() !== e.getMonth() ? " " + s.toLocaleDateString("it-IT", { month: "short" }) : "") + " – " + e.getDate() + " " + e.toLocaleDateString("it-IT", { month: "short" }); };
+  const tile = (l, v) => h("div", { class: "card", style: "flex:1;margin:0;text-align:center;padding:12px 6px" }, h("div", { class: "muted", style: "font-size:13px" }, l), h("div", { style: "font-size:22px;font-weight:800;color:#02175A;margin-top:2px" }, v));
   const act = (fn) => async () => { if (await attempt(fn)) render(); };
+  const title = a.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
   return [
     h("h1", {}, "Le mie ore"),
-    open ? h("div", { class: "note", style: "margin-top:0" }, "Sei dentro dalle " + fTime(open.started_at) + " (" + dur(Date.now() - D(open.started_at)) + ")" + (open.jobs?.title ? " · " + open.jobs.title : "")) : null,
-    open
-      ? h("button", { class: "primary big out", onclick: act(async () => { await clockOut(); }) }, "Timbra uscita")
-      : [h("label", { for: "hj" }, "Lavoro (facoltativo)"), h("select", { id: "hj" }, h("option", { value: "" }, "— nessuno —"), myJobs.map((j) => h("option", { value: j.id }, j.title))),
-        h("button", { class: "primary big", onclick: act(async () => { await clockIn($("hj").value || null); }) }, "Timbra entrata")],
-    h("h2", {}, "Questo mese: " + dur(total)),
-    repN ? h("div", { class: "note", style: "margin-top:0" }, "Dai rapportini (anche dove eri con altri): " + dur(repMin * 60000) + " in " + repN + " rapportini") : null,
-    entries.length ? h("div", { class: "card" }, entries.map((e, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
-      h("div", {}, h("div", {}, fDate(e.started_at)), h("div", { class: "muted" }, fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs?.title ? " · " + e.jobs.title : "")), e.in_lat != null ? h("a", { class: "link", style: "font-size:13px", target: "_blank", rel: "noopener", href: "https://www.google.com/maps/search/?api=1&query=" + e.in_lat + "," + e.in_lng }, "📍 Posizione entrata") : null),
-      h("strong", {}, dur((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)))))) : h("p", {}, "Nessuna timbratura questo mese.")
+    h("div", { class: "card", style: "background:#02175A;color:#fff;border:0;text-align:center;padding:18px 12px" },
+      h("div", { style: "opacity:.8;text-transform:capitalize" }, title), h("div", { style: "font-size:40px;font-weight:800;line-height:1.1;margin:4px 0" }, D2(monthMin)),
+      h("div", { style: "opacity:.8;font-size:14px" }, nDays + (nDays === 1 ? " giorno lavorato" : " giorni lavorati"))),
+    h("div", { style: "display:flex;gap:10px;margin:10px 0" }, tile("Oggi", D2(todayMin)), tile("Questa settimana", D2(weekMin))),
+    h("div", { class: "row", style: "margin:6px 0 12px" }, h("button", { class: "secondary", "aria-label": "Mese precedente", onclick: () => { S.hMonth = new Date(a.getFullYear(), a.getMonth() - 1, 1); render(); } }, "‹ Mese prima"),
+      isNow ? h("span") : h("button", { class: "secondary", onclick: () => { S.hMonth = null; render(); } }, "Oggi"),
+      h("button", { class: "secondary", "aria-label": "Mese dopo", disabled: isNow, onclick: () => { S.hMonth = new Date(a.getFullYear(), a.getMonth() + 1, 1); render(); } }, "Mese dopo ›")),
+    h("p", { class: "muted", style: "margin:0 0 8px" }, "Le ore si segnano da sole dai rapportini (Dalle / Alle). Non serve timbrare."),
+    Object.keys(weeks).sort().reverse().map((w) => h("div", {}, h("div", { class: "row", style: "margin-top:16px" }, h("h2", { style: "margin:0" }, fmtW(w)), h("strong", {}, D2(weeks[w].reduce((s, d) => s + dm(d), 0)))),
+      weeks[w].map((d) => h("div", { class: "card", style: "margin-top:8px" },
+        h("div", { class: "row" }, h("strong", { style: "text-transform:capitalize" }, fmtD(d.k)), h("strong", {}, D2(dm(d)))),
+        d.items.map((it) => h("div", { class: "row", style: "padding-top:6px" }, h("span", { class: "muted", style: it.clk && d.rep > 0 ? "text-decoration:line-through" : "" }, it.ico + " " + it.t), h("span", { class: "muted" }, D2(it.m)))),
+        d.rep > 0 && d.clk > 0 ? h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, "Timbrature non sommate: contano le ore del rapportino.") : null)))),
+    keys.length ? null : h("p", {}, "Nessuna ora in questo mese."),
+    h("div", { class: "card", style: "margin-top:20px" }, h("strong", {}, "⏱ Timbratura (facoltativa)"),
+      open ? h("div", { class: "note" }, "Sei dentro dalle " + fTime(open.started_at) + " (" + dur(Date.now() - D(open.started_at)) + ")" + (open.jobs && open.jobs.title ? " · " + open.jobs.title : "")) : null,
+      open
+        ? h("button", { class: "primary big out", onclick: act(async () => { await clockOut(); }) }, "Timbra uscita")
+        : [h("label", { for: "hj" }, "Lavoro (facoltativo)"), h("select", { id: "hj" }, h("option", { value: "" }, "— nessuno —"), myJobs.map((j) => h("option", { value: j.id }, j.title))),
+          h("button", { class: "secondary", style: "width:100%", onclick: act(async () => { await clockIn($("hj").value || null); }) }, "Timbra entrata")])
   ];
 }
 
