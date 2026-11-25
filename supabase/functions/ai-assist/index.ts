@@ -31,7 +31,7 @@ async function askClaude(content: unknown[], system: string, maxTokens: number) 
 async function askGemini(parts: unknown[], system: string, asJson: boolean) {
   const key = Deno.env.get("GEMINI_API_KEY");
   if (!key) throw new Error("Chiave Gemini non configurata su Supabase");
-  const model = Deno.env.get("GEMINI_MODEL") || "gemini-2.5-flash";
+  const model = Deno.env.get("GEMINI_MODEL") || "gemini-3.8-flash";
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`, {
     method: "POST",
     headers: { "content-type": "application/json" },
