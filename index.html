@@ -450,7 +450,7 @@ function moreView() {
   const T = (k) => () => setTab(k), G = (t) => () => go({ t });
   return [
     h("h1", {}, "Menu"),
-    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports")), sq("🚨", "Urgenti", G("urgent"))]),
+    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), sq("👤", "Clienti", T("clients")), sq("📝", "Rapportini", G("reports")), sq("🚨", "Urgenti", G("urgent"))]),
     group("Documenti e soldi", [sq("🗂️", "Documenti", T("docs")), own ? sq("💼", "Ufficio", T("office")) : null, own ? sq("✉️", "Solleciti", G("chase")) : null]),
     group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Impianti", G("assets")), sq("📦", "Magazzino", G("stock"))]),
     group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
@@ -1876,7 +1876,7 @@ async function clientsView() {
     h("h1", {}, "Clienti"),
     h("input", { id: "cq", placeholder: "Cerca cliente…", value: q, oninput: (e) => { S.draft.clientQ = e.target.value; } , onkeydown: (e) => { if (e.key === "Enter") render(); } }),
     h("button", { class: "secondary", style: "width:100%;margin:8px 0 12px", onclick: () => { S.draft.clientQ = $("cq").value; render(); } }, "Cerca"),
-    h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "clientForm" }) }, "+ Nuovo cliente"),
+    OWNER() ? h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "clientForm" }) }, "+ Nuovo cliente") : null,
     list.length ? list.map((c) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "client", id: c.id }) },
       h("div", { class: "title", style: "margin-top:0" }, c.name), c.phone ? h("div", { class: "muted" }, c.phone) : null, c.address ? addrLink(c.address) : null)) : h("p", {}, "Nessun cliente.")
   ];
