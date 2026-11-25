@@ -462,9 +462,21 @@ function compareMats(rm, jm) {
   };
   return rm.map((m) => ({ m, hit: find(m.desc) }));
 }
+async function repList(jobIds, empty) {
+  if (!jobIds.length) return h("p", { class: "muted" }, empty);
+  await loadTeam();
+  const l = chk(await sb.from("reports").select("*, jobs(title)").in("job_id", jobIds).order("day", { ascending: false }).limit(30));
+  if (!l.length) return h("p", { class: "muted" }, empty);
+  return l.map((r) => h("div", { class: "card" },
+    h("div", { class: "row" }, h("strong", {}, dayLabel(r.day)), h("span", { class: "muted" }, who(r.user_id))),
+    jobIds.length > 1 && r.jobs && r.jobs.title ? h("div", { class: "when" }, r.jobs.title) : null,
+    r.with_ids && r.with_ids.length ? h("div", { class: "muted" }, "Insieme a: " + r.with_ids.map(who).join(", ")) : null,
+    r.summary ? h("div", { style: "white-space:pre-wrap;margin-top:6px" }, r.summary) : null,
+    h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); go({ t: "reports" }); } }, "Apri nei rapportini (commenti e materiale)")));
+}
 async function reportsView() {
   const since = isoDay(new Date(Date.now() - 45 * 864e5));
-  const list = chk(await sb.from("reports").select("*, jobs(title)").gte("day", since).order("day", { ascending: false }).order("created_at", { ascending: false }).limit(80));
+  const list = chk(await sb.from("reports").select("*, jobs(title, clients(name))").gte("day", since).order("day", { ascending: false }).order("created_at", { ascending: false }).limit(80));
   await loadTeam();
   const cm = await commentsFor("report", list.map((r) => r.id));
   const jobIds = [...new Set(list.map((r) => r.job_id).filter(Boolean))];
@@ -478,7 +490,7 @@ async function reportsView() {
     const mine = r.user_id === S.p.id;
     return h("div", { class: "card" },
       h("div", { class: "row" }, h("strong", {}, who(r.user_id)), h("span", { class: "muted" }, r.minutes != null ? dur(r.minutes * 60000) : "")),
-      r.jobs && r.jobs.title ? h("div", { class: "when" }, r.jobs.title) : null,
+      r.jobs && r.jobs.title ? h("a", { class: "when", href: "#", onclick: (e) => { e.preventDefault(); go({ t: "job", id: r.job_id }); } }, (r.jobs.clients && r.jobs.clients.name ? r.jobs.clients.name + " · " : "") + r.jobs.title) : null,
       r.with_ids && r.with_ids.length ? h("div", { class: "muted" }, "Insieme a: " + r.with_ids.map(who).join(", ")) : null,
       r.summary ? h("div", { style: "white-space:pre-wrap;margin:8px 0" }, r.summary) : null,
       mats.length ? h("div", { style: "margin-top:6px" }, h("div", { class: "muted" }, "Materiale"), cmp.map(({ m, hit }) => {
@@ -503,7 +515,7 @@ async function reportForm(sub) {
   const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
   const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
   const pre = rep || draft || {};
-  const [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(120).then(chk), team0()]);
+  const [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(120).then(chk), team0()]);
   const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
   const withSet = new Set(pre.with_ids || []);
   const matBox = h("div");
@@ -532,7 +544,7 @@ async function reportForm(sub) {
   return [
     h("h1", {}, rep ? "Modifica rapportino" : "Rapportino di oggi"),
     h("label", { for: "r_day" }, "Giorno"), h("input", { id: "r_day", type: "date", value: pre.day || isoDay(new Date()), onchange: () => { calcHours().catch(() => {}); stash(); } }), hoursBox,
-    h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, j.title))),
+    h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title))),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "5", placeholder: "Lavori eseguiti, problemi, cose rimaste da fare…", oninput: stash }, pre.summary || ""),
     h("label", {}, "Con chi eri"),
     tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
@@ -1358,6 +1370,7 @@ async function jobView(id) {
   const urls = {};
   if (photos.length) { const r = await sb.storage.from("docs").createSignedUrls(photos.map((d) => d.file_path), 3600); (r.data || []).forEach((x) => { if (x.signedUrl) urls[x.path] = x.signedUrl; }); }
   const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
+  const reps = await repList([j.id], "Nessun rapportino su questo lavoro.").catch(() => null);
   const ck = await jobChecklists(j).catch(() => null), cost = OWNER() ? await jobCostCard(j, docs).catch(() => null) : null;
   return [
     h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, jobIcon(j.title) + " " + j.title), badge(j.status)),
@@ -1378,6 +1391,9 @@ async function jobView(id) {
       h("label", { for: "fn" }, "Note dal cantiere"),
       h("textarea", { id: "fn", rows: "3", placeholder: "Cosa hai fatto, problemi, cose da ricordare…" }, j.field_notes || ""),
       h("button", { class: "primary", style: "margin-top:12px", onclick: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); }) }, "Salva avanzamento")),
+
+    h("h2", {}, "Rapportini di questo lavoro"), reps,
+    h("button", { class: "secondary", style: "width:100%;margin-bottom:8px", onclick: () => { sk("rep_draft", JSON.stringify({ day: isoDay(new Date()), job_id: j.id, summary: "", with_ids: [], materials: [] })); go({ t: "reportForm" }); } }, "📝 Scrivi un rapportino"),
 
     h("h2", {}, "Materiale usato"),
     mats.length ? h("div", { class: "card" }, mats.map((m, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
@@ -1561,6 +1577,7 @@ async function clientView(id) {
       !c.phone && !c.email && !c.address && !c.notes ? h("p", {}, "Nessun dettaglio.") : null),
     h("h2", {}, "Lavori di questo cliente"),
     jobs.length ? jobs.map(jobCard) : h("p", {}, "Nessun lavoro."),
+    h("h2", {}, "Rapportini dei suoi lavori"), await repList(jobs.map((x) => x.id), "Nessun rapportino."),
     OWNER() ? [h("button", { class: "secondary", style: "width:100%;margin-top:16px", onclick: () => go({ t: "clientForm", id }) }, "Modifica cliente"),
       h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare il cliente? I suoi lavori restano, senza cliente.")) return; if (await attempt(async () => { chk(await sb.from("clients").delete().eq("id", id)); })) back(); } }, "Elimina cliente")] : null
   ];
