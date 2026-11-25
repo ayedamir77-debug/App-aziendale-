@@ -18,6 +18,7 @@ p{margin:0 0 10px;line-height:1.45;color:#4E5A66}
 .logo{width:44px;height:44px;border-radius:12px;background:#02175A;color:#FFB800;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex:none}
 .logo img{width:100%;height:100%;object-fit:contain;background:#fff}
 .hero{border-bottom:4px solid #FFB800;background:linear-gradient(135deg,#02175A 0%,#0A2A8F 100%);color:#fff;border-radius:16px;padding:16px;margin:6px 0 4px;position:relative;overflow:hidden}
+.wktalk{width:100%;height:120px;font-size:20px;border-radius:18px;background:#02175A;color:#fff;margin:6px 0 12px;touch-action:none;user-select:none;-webkit-user-select:none;border-bottom:5px solid #FFB800}.wktalk.rec{background:#C62828;border-bottom-color:#FFB800}
 .hero .nm{font-size:18px;font-weight:700;line-height:22px}
 .hero .tg{font-size:12px;opacity:.8;margin-top:2px}
 .hero .ico{display:flex;gap:10px;font-size:20px;margin-top:12px;opacity:.95}
@@ -338,7 +339,7 @@ window.addEventListener("popstate", () => {
   const x = S.stack.pop();
   if (x) { S.tab = x.tab; S.sub = x.sub; render(); }
 });
-const logout = () => sb.auth.signOut();
+const logout = () => { try { wkStop(); } catch { /* ignora */ } return sb.auth.signOut(); };
 
 /* ---------- accesso e registrazione ---------- */
 let mode = "login";
@@ -448,7 +449,7 @@ function moreView() {
     group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Schede impianto", G("assets")), sq("📦", "Magazzino", G("stock"))]),
     group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
     group("Mezzi e scadenze", [sq("🚐", "Mezzi", G("vehicles")), sq("🛠️", "Garanzie e manutenzioni", G("warr"))]),
-    group("Strumenti", [sq("👤", "Il mio profilo", G("profile")), sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
+    group("Strumenti", [sq("🎙️", "Walkie-talkie", G("walkie")), sq("👤", "Il mio profilo", G("profile")), sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
   ];
 }
 
@@ -868,6 +869,73 @@ async function jobChecklists(j) {
         h("button", { class: "ghost", style: "color:#A32121;font-size:13px", onclick: async () => { if (confirm("Eliminare la checklist?") && await attempt(async () => { chk(await sb.from("job_checklists").delete().eq("id", c.id)); })) render(); } }, "Elimina checklist")); }),
     sel];
 }
+/* ---------- walkie-talkie (messaggi vocali istantanei, con l'app aperta) ---------- */
+const WK = { ch: null, q: [], playing: false, peers: [], last: "", lock: null, rec: null };
+function wkUI() {
+  const pe = $("wkpeers"), st = $("wkstat");
+  if (pe) pe.textContent = WK.ch ? (WK.peers.length ? "Collegati: " + WK.peers.join(", ") : "Nessun altro collegato") : "";
+  if (st) st.textContent = WK.last;
+}
+async function wkLock(on) {
+  try { if (on && navigator.wakeLock && !WK.lock) WK.lock = await navigator.wakeLock.request("screen"); else if (!on && WK.lock) { await WK.lock.release(); WK.lock = null; } } catch { /* non supportato */ }
+}
+function wkPlayNext() {
+  if (WK.playing || !WK.q.length) return;
+  const m = WK.q.shift(); WK.playing = true;
+  const done = () => { WK.playing = false; wkPlayNext(); };
+  const a = new Audio("data:" + m.mime + ";base64," + m.b64);
+  a.onended = done; a.onerror = done;
+  WK.last = "🔊 " + (m.name || "Un collega") + " sta parlando…"; wkUI();
+  a.play().catch(() => { WK.last = "Tocca lo schermo per attivare l'audio"; WK.playing = false; WK.q.unshift(m); wkUI(); });
+  a.addEventListener("ended", () => { WK.last = "Ultimo: " + (m.name || "collega") + " alle " + new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }); wkUI(); });
+}
+function wkStart() {
+  if (WK.ch || !S.p || !S.p.company_id) return;
+  const ch = sb.channel("walkie-" + S.p.company_id, { config: { broadcast: { self: false }, presence: { key: S.p.id } } });
+  ch.on("broadcast", { event: "v" }, ({ payload }) => { if (payload && payload.b64) { WK.q.push(payload); wkPlayNext(); } })
+    .on("presence", { event: "sync" }, () => { const ps = ch.presenceState(); WK.peers = Object.keys(ps).filter((k) => k !== S.p.id).map((k) => (ps[k][0] && ps[k][0].name) || "collega"); wkUI(); })
+    .subscribe(async (st) => { if (st === "SUBSCRIBED") { try { await ch.track({ name: S.p.full_name || "collega" }); } catch { /* ignora */ } } });
+  WK.ch = ch;
+}
+function wkStop() { if (WK.ch) { try { sb.removeChannel(WK.ch); } catch { /* ignora */ } WK.ch = null; } WK.peers = []; WK.q = []; wkLock(false); wkUI(); }
+async function wkTalk(btn) {
+  if (!WK.ch) return;
+  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { alert("Microfono non consentito: attivalo nelle impostazioni del browser."); return; }
+  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 }), chunks = []; WK.rec = rec;
+  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  const t0 = Date.now(); let timer = setTimeout(() => rec.state === "recording" && rec.stop(), 25000);
+  rec.onstop = async () => {
+    clearTimeout(timer); stream.getTracks().forEach((t) => t.stop()); WK.rec = null; btn.classList.remove("rec");
+    if (Date.now() - t0 < 400 || !chunks.length) { WK.last = "Troppo breve: tieni premuto mentre parli"; wkUI(); return; }
+    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" }), b64 = await toB64(blob);
+    if (b64.length > 240000) { WK.last = "Messaggio troppo lungo"; wkUI(); return; }
+    const r = await WK.ch.send({ type: "broadcast", event: "v", payload: { b64, mime: (rec.mimeType || "audio/webm").split(";")[0], name: S.p.full_name || "collega" } });
+    WK.last = r === "ok" ? "✅ Inviato (" + Math.round((Date.now() - t0) / 1000) + " s)" : "Non inviato: controlla la connessione"; wkUI();
+  };
+  rec.start(); btn.classList.add("rec");
+}
+function wkRelease() { if (WK.rec && WK.rec.state === "recording") WK.rec.stop(); }
+async function walkieView() {
+  const on = lk("wk_on") === "1";
+  const talk = h("button", { class: "wktalk", style: on ? "" : "display:none", "aria-label": "Tieni premuto e parla" }, "🎙️ Tieni premuto e parla");
+  talk.addEventListener("pointerdown", (e) => { e.preventDefault(); wkTalk(talk); });
+  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) talk.addEventListener(ev, wkRelease);
+  talk.addEventListener("contextmenu", (e) => e.preventDefault());
+  const sw = h("input", { type: "checkbox", checked: on, style: "width:22px;height:22px", onchange: (e) => {
+    sk("wk_on", e.target.checked ? "1" : "0"); talk.style.display = e.target.checked ? "" : "none";
+    if (e.target.checked) { wkStart(); new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA=").play().catch(() => {}); } else wkStop(); } });
+  const awake = h("input", { type: "checkbox", style: "width:22px;height:22px", onchange: (e) => wkLock(e.target.checked) });
+  setTimeout(wkUI, 0);
+  return [h("h1", {}, "🎙️ Walkie-talkie"),
+    h("div", { class: "card" },
+      h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-size:16px" }, sw, "Walkie-talkie attivo"),
+      h("p", { class: "muted", id: "wkpeers", style: "margin:10px 0 0" }), h("p", { id: "wkstat", style: "margin:6px 0 0;font-weight:600" })),
+    talk,
+    h("div", { class: "card" },
+      h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-weight:500" }, awake, "Tieni lo schermo acceso (consuma più batteria)")),
+    h("div", { class: "note" }, "Tieni premuto il tasto mentre parli e lascia quando hai finito: la voce arriva subito a tutti i colleghi che hanno il walkie-talkie attivo. Funziona con l'app aperta sullo schermo; con il telefono bloccato o l'app chiusa non esce la voce. Max 25 secondi a messaggio.")];
+}
 async function profileView() {
   return [h("h1", {}, "Il mio profilo"),
     h("div", { class: "card" },
@@ -1184,7 +1252,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
@@ -1336,6 +1404,7 @@ async function boot() {
     if (error) throw error;
     if (!data) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
     S.p = data;
+    if (lk("wk_on") === "1") { try { wkStart(); } catch { /* walkie non disponibile */ } }
     if (data.role === "employee" && data.status !== "active") return waitScreen(data);
     if (data.role === "owner") await loadTeam();
     render();
