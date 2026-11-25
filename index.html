@@ -1835,6 +1835,7 @@ async function calView() {
   const y = S.month.getFullYear(), m = S.month.getMonth();
   const first = new Date(y, m, 1), next = new Date(y, m + 1, 1);
   const jobs = chk(await sb.from("jobs").select("*, clients(name)").gte("start_at", first.toISOString()).lt("start_at", next.toISOString()).order("start_at"));
+  const undated = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").is("start_at", null).neq("status", "done").order("created_at", { ascending: false }).limit(60));
   const today = new Date();
   const offset = (first.getDay() + 6) % 7;
   const days = new Date(y, m + 1, 0).getDate();
@@ -1854,7 +1855,8 @@ async function calView() {
       h("button", { class: "secondary", "aria-label": "Mese successivo", onclick: () => { S.month = new Date(y, m + 1, 1); S.day = new Date(y, m + 1, 1); render(); } }, "›")),
     h("div", { class: "cal", style: "margin-top:14px" }, cells),
     h("h2", {}, S.day.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
-    list.length ? list.map(jobCard) : h("p", {}, "Nessun lavoro in questo giorno.")
+    list.length ? list.map(jobCard) : h("p", {}, "Nessun lavoro in questo giorno."),
+    undated.length ? [h("h2", {}, "📌 Da programmare (senza data)"), h("p", { class: "muted", style: "margin-top:0" }, "Metti una data dal lavoro per vederlo nel calendario."), undated.map(jobCard)] : null
   ];
 }
 
