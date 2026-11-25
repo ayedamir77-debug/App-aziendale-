@@ -2409,7 +2409,7 @@ async function hoursView() {
   const myJobs = chk(await sb.from("jobs").select("id,title").neq("status", "done").order("start_at", { nullsFirst: false }));
   const total = entries.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
   let repMin = 0, repN = 0;
-  try { const rr = chk(await sb.from("reports").select("minutes").gte("day", isoDay(monthStart())).not("minutes", "is", null).or("user_id.eq." + S.p.id + ",with_ids.cs.{" + S.p.id + "}")); repN = rr.length; repMin = rr.reduce((a, r) => a + r.minutes, 0); } catch { /* ignora */ }
+  try { const rr0 = chk(await sb.from("reports").select("minutes,user_id,with_ids").gte("day", isoDay(monthStart())).not("minutes", "is", null).or("user_id.eq." + S.p.id + ",with_ids.cs.{" + S.p.id + "}")), rr = rr0.filter((r) => (r.with_ids && r.with_ids.length) ? r.with_ids.includes(S.p.id) : r.user_id === S.p.id); repN = rr.length; repMin = rr.reduce((a, r) => a + r.minutes, 0); } catch { /* ignora */ }
   const act = (fn) => async () => { if (await attempt(fn)) render(); };
   return [
     h("h1", {}, "Le mie ore"),
