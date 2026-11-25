@@ -96,6 +96,17 @@ Deno.serve(async (req) => {
         : await askClaude([{ type: "text", text: prompt }], system, 800);
       return json({ text });
     }
+    if (body.task === "report") {
+      const t = String(body.text || "").slice(0, 6000);
+      const names = String(body.team || "").slice(0, 600);
+      if (!t.trim()) return json({ error: "Niente da riordinare" }, 400);
+      const system = "Sei l'assistente di un'azienda di impianti elettrici. Rispondi solo in JSON.";
+      const prompt = `Un installatore ha dettato a voce il rapportino di fine giornata. Rimetti in ordine senza inventare nulla.\nRispondi SOLO con JSON: {"summary": string, "materials": [{"desc": string, "qty": number|null, "unit": string|null, "src": "nostro"|"comprato"}], "with": [string]}.\n- summary: elenco puntato breve in italiano (una riga per attività, ogni riga inizia con "• "), togli intercalari e ripetizioni, includi problemi e cose rimaste da fare.\n- materials: materiale citato; src "comprato" solo se dice che è stato comprato, altrimenti "nostro".\n- with: nomi dei colleghi citati, scelti tra: ${names || "nessuno"}.\n\nTesto dettato:\n${t}`;
+      const text = provider === "gemini"
+        ? await askGemini([{ text: prompt }], system, true)
+        : await askClaude([{ type: "text", text: prompt }], system, 1200);
+      return json(parseJson(text));
+    }
     return json({ error: "Richiesta non valida" }, 400);
   } catch (e) {
     return json({ error: String((e as Error).message || e) }, 500);

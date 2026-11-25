@@ -511,6 +511,29 @@ async function reportsView() {
     Object.keys(byDay).length ? Object.keys(byDay).map((d) => [h("h2", { style: "text-transform:capitalize" }, dayLabel(d)), byDay[d].map(card)]) : h("p", {}, "Ancora nessun rapportino.")
   ];
 }
+function tidyText(t) {
+  const fill = /\b(allora|praticamente|cioè|diciamo|ecco|insomma|niente|tipo|poi|eh|ehm|dunque)\b[,]?\s*/gi;
+  const parts = String(t || "").replace(/\s+/g, " ").split(/(?<=[.!?])\s+|\s+(?:e poi|dopodiché|dopo di che)\s+/i).map((x) => x.replace(fill, "").replace(/[.,;\s]+$/, "").trim()).filter((x) => x.length > 2);
+  return parts.map((x) => "• " + x.charAt(0).toUpperCase() + x.slice(1)).join("\n");
+}
+function micButton(ta, onText) {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const st = h("div", { class: "muted", style: "margin-top:6px" });
+  if (!SR) { st.textContent = "Il dettato qui non è disponibile: usa il microfono della tastiera del telefono."; return { btn: null, st }; }
+  let rec = null, on = false;
+  const btn = h("button", { class: "secondary", style: "flex:1" }, "🎤 Detta a voce");
+  const stop = () => { on = false; try { rec && rec.stop(); } catch { /* già fermo */ } btn.textContent = "🎤 Detta a voce"; btn.style.background = ""; st.textContent = ""; };
+  const start = () => {
+    rec = new SR(); rec.lang = "it-IT"; rec.continuous = true; rec.interimResults = false;
+    rec.onresult = (ev) => { let add = ""; for (let i = ev.resultIndex; i < ev.results.length; i++) if (ev.results[i].isFinal) add += ev.results[i][0].transcript + " "; if (add) { ta.value = (ta.value ? ta.value.replace(/\s*$/, " ") : "") + add.trim(); onText(); } };
+    rec.onerror = (ev) => { if (ev.error === "not-allowed" || ev.error === "service-not-allowed") { stop(); st.textContent = "Microfono non consentito: attivalo nelle impostazioni del browser."; } };
+    rec.onend = () => { if (on) { try { rec.start(); } catch { /* ignora */ } } };
+    on = true; try { rec.start(); } catch { /* ignora */ }
+    btn.textContent = "⏹ Stop (sto ascoltando…)"; btn.style.background = "#FFF1C2"; st.textContent = "Parla pure, come ti viene. Poi premi Stop e \"Metti in ordine\".";
+  };
+  btn.onclick = () => { if (on) stop(); else start(); };
+  return { btn, st, stop };
+}
 async function reportForm(sub) {
   const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
   const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
@@ -545,7 +568,27 @@ async function reportForm(sub) {
     h("h1", {}, rep ? "Modifica rapportino" : "Rapportino di oggi"),
     h("label", { for: "r_day" }, "Giorno"), h("input", { id: "r_day", type: "date", value: pre.day || isoDay(new Date()), onchange: () => { calcHours().catch(() => {}); stash(); } }), hoursBox,
     h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title))),
-    h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "5", placeholder: "Lavori eseguiti, problemi, cose rimaste da fare…", oninput: stash }, pre.summary || ""),
+    h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
+    (() => {
+      const m = micButton({ get value() { return $("r_sum").value; }, set value(v) { $("r_sum").value = v; } }, stash);
+      const tidy = h("button", { class: "secondary", style: "flex:1" }, "✨ Metti in ordine");
+      tidy.onclick = async () => {
+        m.stop && m.stop();
+        const raw = $("r_sum").value.trim(); if (!raw) { m.st.textContent = "Prima scrivi o detta qualcosa."; return; }
+        tidy.disabled = true; m.st.textContent = "Sto mettendo in ordine…";
+        try {
+          if (co().ai_enabled) {
+            const r = await aiCall({ task: "report", text: raw, team: tm.map((t) => t.full_name).join(", ") });
+            if (r.summary) $("r_sum").value = String(r.summary);
+            if (Array.isArray(r.materials) && r.materials.length) { const have = new Set(mats.map((x) => (x.desc || "").toLowerCase())); for (const x of r.materials) if (x && x.desc && !have.has(String(x.desc).toLowerCase())) mats.push({ desc: String(x.desc), qty: numOrNull(x.qty), unit: x.unit || "", src: x.src === "comprato" ? "comprato" : "nostro" }); drawMats(); }
+            if (Array.isArray(r.with)) for (const nm of r.with) { const t = tm.find((x) => normT(x.full_name) === normT(nm) || normT(x.full_name).includes(normT(nm))); if (t && t.id !== S.p.id) withSet.add(t.id); }
+            stash(); m.st.textContent = "Fatto. Controlla e correggi se serve."; if (!rep) render();
+          } else { $("r_sum").value = tidyText(raw) || raw; stash(); m.st.textContent = "Messo in elenco. Con l'assistente IA attivo mette in ordine meglio e trova anche materiale e colleghi."; }
+        } catch (e) { m.st.textContent = "Non riesco: " + (e.message || e); }
+        tidy.disabled = false;
+      };
+      return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, tidy), m.st);
+    })(),
     h("label", {}, "Con chi eri"),
     tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
     h("h2", {}, "Materiale usato"), matBox,
