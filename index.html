@@ -450,7 +450,7 @@ function moreView() {
   const T = (k) => () => setTab(k), G = (t) => () => go({ t });
   return [
     h("h1", {}, "Menu"),
-    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports"))]),
+    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports")), sq("🚨", "Urgenti", G("urgent"))]),
     group("Documenti e soldi", [sq("🗂️", "Documenti", T("docs")), own ? sq("💼", "Ufficio", T("office")) : null, own ? sq("✉️", "Solleciti", G("chase")) : null]),
     group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Schede impianto", G("assets")), sq("📦", "Magazzino", G("stock"))]),
     group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
@@ -498,7 +498,7 @@ async function reportsView() {
     return h("div", { class: "card" },
       h("div", { class: "row" }, h("strong", {}, who(r.user_id)), h("span", { class: "muted" }, r.minutes != null ? dur(r.minutes * 60000) : "")),
       r.jobs && r.jobs.title ? h("a", { class: "when", href: "#", onclick: (e) => { e.preventDefault(); go({ t: "job", id: r.job_id }); } }, (r.jobs.clients && r.jobs.clients.name ? r.jobs.clients.name + " · " : "") + r.jobs.title) : null,
-      r.with_ids && r.with_ids.length ? h("div", { class: "muted" }, "Insieme a: " + r.with_ids.map(who).join(", ")) : null,
+      r.with_ids && r.with_ids.length ? h("div", { class: "muted" }, "Insieme a: " + r.with_ids.map(who).join(", ") + (r.minutes != null ? " · stesse ore per tutti" : "")) : null,
       r.summary ? h("div", { style: "white-space:pre-wrap;margin:8px 0" }, r.summary) : null,
       mats.length ? h("div", { style: "margin-top:6px" }, h("div", { class: "muted" }, "Materiale"), cmp.map(({ m, hit }) => {
         let tag = "";
@@ -545,9 +545,10 @@ async function reportForm(sub) {
   const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
   const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
   const pre = rep || draft || {};
-  const [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(120).then(chk), team0()]);
+  const [jobs, tm, clientsL] = await Promise.all([sb.from("jobs").select("id,title,start_at,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(120).then(chk), team0(), rep ? [] : sb.from("clients").select("id,name,address").order("name").then(chk).catch(() => [])]);
   const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
   const withSet = new Set(pre.with_ids || []);
+  const urg = !rep && !!S.urgentNext; S.urgentNext = false;
   const matBox = h("div");
   const drawMats = () => {
     matBox.replaceChildren(...mats.map((m, i) => h("div", { class: "card", style: "padding:10px 12px" },
@@ -585,7 +586,15 @@ async function reportForm(sub) {
     h("label", {}, "Ore di lavoro (facoltativo)"),
     h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "r_from", type: "time", onchange: calcMan })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "r_to", type: "time", onchange: calcMan }))),
     h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "r_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calcMan }), manBox,
-    h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title))),
+    rep ? null : h("div", { class: "card", style: "margin-top:14px;border-color:#E5484D" },
+      h("label", { style: "display:flex;gap:10px;align-items:center;margin:0;font-weight:700" }, h("input", { id: "r_urg", type: "checkbox", checked: urg, style: "width:24px;height:24px", onchange: () => { const on = $("r_urg").checked; $("urgBox").style.display = on ? "" : "none"; $("jobBox").style.display = on ? "none" : ""; } }), "🚨 Intervento urgente"),
+      h("div", { id: "urgBox", style: urg ? "" : "display:none" },
+        h("div", { class: "muted", style: "margin:6px 0" }, "Crea in automatico il lavoro e lo chiude subito."),
+        h("label", { for: "r_uc" }, "Cliente"), h("select", { id: "r_uc" }, h("option", { value: "" }, "— nessuno —"), clientsL.map((c) => h("option", { value: c.id }, c.name))),
+        h("label", { for: "r_uw" }, "Che intervento è stato"), h("input", { id: "r_uw", placeholder: "Es. Cancello bloccato, quadro saltato" }),
+        h("label", { style: "display:flex;gap:10px;align-items:center;margin-top:12px" }, h("input", { id: "r_back", type: "checkbox", style: "width:24px;height:24px" }), "↩️ Chiuso, ma c'è da tornare"),
+        h("input", { id: "r_bn", placeholder: "Cosa resta da fare (facoltativo)" }))),
+    h("div", { id: "jobBox", style: urg ? "display:none" : "" }, h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title)))),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
     (() => {
       const m = micButton({ get value() { return $("r_sum").value; }, set value(v) { $("r_sum").value = v; } }, stash);
@@ -617,12 +626,34 @@ async function reportForm(sub) {
         const day = $("r_day").value; if (!day) throw new Error("Scegli il giorno");
         const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro" }));
         if (!summary && !cm.length) throw new Error("Scrivi cosa hai fatto o il materiale usato");
-        const row = { day, job_id: $("r_job").value || null, summary: summary || null, with_ids: [...withSet], materials: cm, minutes };
+        let jobId = $("r_job").value || null;
+        if (!rep && $("r_urg") && $("r_urg").checked) {
+          const what = $("r_uw").value.trim(); if (!what) throw new Error("Scrivi che intervento urgente è stato");
+          const cid = $("r_uc").value || null, cl = clientsL.find((c) => c.id === cid);
+          const base = { company_id: S.p.company_id, client_id: cid, address: (cl && cl.address) || null, created_by: S.p.id };
+          jobId = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + what, status: "done", start_at: new Date().toISOString() }).select().single()).id;
+          if ($("r_back").checked) chk(await sb.from("jobs").insert({ ...base, title: "↩️ Tornare: " + what, description: $("r_bn").value.trim() || null, status: "todo" }));
+        }
+        const row = { day, job_id: jobId, summary: summary || null, with_ids: [...withSet], materials: cm, minutes };
         if (rep) chk(await sb.from("reports").update(row).eq("id", rep.id)); else chk(await sb.from("reports").insert({ ...row, company_id: S.p.company_id, user_id: S.p.id }));
         sk("rep_draft", "");
       });
       if (ok) back(); else e.target.disabled = false;
     } }, "Salva rapportino")
+  ];
+}
+
+/* ---------- interventi urgenti ---------- */
+async function urgentView() {
+  const rows = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").like("title", "🚨%").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
+  await loadTeam();
+  const back = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").like("title", "↩️%").neq("status", "done").order("created_at", { ascending: false }));
+  return [
+    h("h1", {}, "🚨 Interventi urgenti"),
+    h("button", { class: "primary", style: "margin-top:0", onclick: () => { sk("rep_draft", ""); S.urgentNext = true; go({ t: "reportForm" }); } }, "+ Nuovo intervento urgente"),
+    h("p", { class: "muted" }, "Nel rapportino spunta «Intervento urgente»: il lavoro si crea e si chiude da solo."),
+    back.length ? [h("h2", {}, "↩️ Da tornare (" + back.length + ")"), back.map(jobCard)] : null,
+    h("h2", {}, "Fatti"), rows.length ? rows.map(jobCard) : h("p", {}, "Nessun intervento urgente.")
   ];
 }
 
@@ -1334,7 +1365,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, urgent: urgentView, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
@@ -2321,6 +2352,8 @@ async function hoursView() {
   const open = entries.find((e) => !e.ended_at);
   const myJobs = chk(await sb.from("jobs").select("id,title").neq("status", "done").order("start_at", { nullsFirst: false }));
   const total = entries.reduce((s, e) => s + ((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)), 0);
+  let repMin = 0, repN = 0;
+  try { const rr = chk(await sb.from("reports").select("minutes").gte("day", isoDay(monthStart())).not("minutes", "is", null).or("user_id.eq." + S.p.id + ",with_ids.cs.{" + S.p.id + "}")); repN = rr.length; repMin = rr.reduce((a, r) => a + r.minutes, 0); } catch { /* ignora */ }
   const act = (fn) => async () => { if (await attempt(fn)) render(); };
   return [
     h("h1", {}, "Le mie ore"),
@@ -2330,6 +2363,7 @@ async function hoursView() {
       : [h("label", { for: "hj" }, "Lavoro (facoltativo)"), h("select", { id: "hj" }, h("option", { value: "" }, "— nessuno —"), myJobs.map((j) => h("option", { value: j.id }, j.title))),
         h("button", { class: "primary big", onclick: act(async () => { await clockIn($("hj").value || null); }) }, "Timbra entrata")],
     h("h2", {}, "Questo mese: " + dur(total)),
+    repN ? h("div", { class: "note", style: "margin-top:0" }, "Dai rapportini (anche dove eri con altri): " + dur(repMin * 60000) + " in " + repN + " rapportini") : null,
     entries.length ? h("div", { class: "card" }, entries.map((e, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
       h("div", {}, h("div", {}, fDate(e.started_at)), h("div", { class: "muted" }, fTime(e.started_at) + " → " + (e.ended_at ? fTime(e.ended_at) : "in corso") + (e.jobs?.title ? " · " + e.jobs.title : "")), e.in_lat != null ? h("a", { class: "link", style: "font-size:13px", target: "_blank", rel: "noopener", href: "https://www.google.com/maps/search/?api=1&query=" + e.in_lat + "," + e.in_lng }, "📍 Posizione entrata") : null),
       h("strong", {}, dur((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)))))) : h("p", {}, "Nessuna timbratura questo mese.")
