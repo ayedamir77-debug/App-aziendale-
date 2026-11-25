@@ -18,6 +18,7 @@ p{margin:0 0 10px;line-height:1.45;color:#4E5A66}
 .logo{width:44px;height:44px;border-radius:12px;background:#02175A;color:#FFB800;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex:none}
 .logo img{width:100%;height:100%;object-fit:contain;background:#fff}
 .hero{border-bottom:4px solid #FFB800;background:linear-gradient(135deg,#02175A 0%,#0A2A8F 100%);color:#fff;border-radius:16px;padding:16px;margin:6px 0 4px;position:relative;overflow:hidden}
+.wkchip[data-on="1"]::before{content:"● ";color:#2E9E4F}
 .wktalk{width:100%;height:120px;font-size:20px;border-radius:18px;background:#02175A;color:#fff;margin:6px 0 12px;touch-action:none;user-select:none;-webkit-user-select:none;border-bottom:5px solid #FFB800}.wktalk.rec{background:#C62828;border-bottom-color:#FFB800}
 .hero .nm{font-size:18px;font-weight:700;line-height:22px}
 .hero .tg{font-size:12px;opacity:.8;margin-top:2px}
@@ -870,11 +871,13 @@ async function jobChecklists(j) {
     sel];
 }
 /* ---------- walkie-talkie (messaggi vocali istantanei, con l'app aperta) ---------- */
-const WK = { ch: null, q: [], playing: false, peers: [], last: "", lock: null, rec: null };
+const WK = { ch: null, q: [], playing: false, peers: [], online: new Set(), to: "all", last: "", lock: null, rec: null };
 function wkUI() {
   const pe = $("wkpeers"), st = $("wkstat");
   if (pe) pe.textContent = WK.ch ? (WK.peers.length ? "Collegati: " + WK.peers.join(", ") : "Nessun altro collegato") : "";
   if (st) st.textContent = WK.last;
+  document.querySelectorAll(".wkchip").forEach((c) => { const id = c.dataset.id; c.classList.toggle("on", id === "all" ? WK.to === "all" : WK.to !== "all" && WK.to.has(id)); if (id !== "all") c.dataset.on = WK.online.has(id) ? "1" : "0"; });
+  const tl = $("wkto"); if (tl) tl.textContent = WK.to === "all" ? "Parli a: tutti" : "Parli a: " + [...WK.to].map((i) => (S.team.find((t) => t.id === i) || {}).full_name || "collega").join(", ");
 }
 async function wkLock(on) {
   try { if (on && navigator.wakeLock && !WK.lock) WK.lock = await navigator.wakeLock.request("screen"); else if (!on && WK.lock) { await WK.lock.release(); WK.lock = null; } } catch { /* non supportato */ }
@@ -892,8 +895,8 @@ function wkPlayNext() {
 function wkStart() {
   if (WK.ch || !S.p || !S.p.company_id) return;
   const ch = sb.channel("walkie-" + S.p.company_id, { config: { broadcast: { self: false }, presence: { key: S.p.id } } });
-  ch.on("broadcast", { event: "v" }, ({ payload }) => { if (payload && payload.b64) { WK.q.push(payload); wkPlayNext(); } })
-    .on("presence", { event: "sync" }, () => { const ps = ch.presenceState(); WK.peers = Object.keys(ps).filter((k) => k !== S.p.id).map((k) => (ps[k][0] && ps[k][0].name) || "collega"); wkUI(); })
+  ch.on("broadcast", { event: "v" }, ({ payload }) => { if (payload && payload.b64 && (!payload.to || payload.to === "all" || (Array.isArray(payload.to) && payload.to.includes(S.p.id)))) { WK.q.push(payload); wkPlayNext(); } })
+    .on("presence", { event: "sync" }, () => { const ps = ch.presenceState(); WK.online = new Set(Object.keys(ps).filter((k) => k !== S.p.id)); WK.peers = [...WK.online].map((k) => (ps[k][0] && ps[k][0].name) || "collega"); wkUI(); })
     .subscribe(async (st) => { if (st === "SUBSCRIBED") { try { await ch.track({ name: S.p.full_name || "collega" }); } catch { /* ignora */ } } });
   WK.ch = ch;
 }
@@ -910,14 +913,16 @@ async function wkTalk(btn) {
     if (Date.now() - t0 < 400 || !chunks.length) { WK.last = "Troppo breve: tieni premuto mentre parli"; wkUI(); return; }
     const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" }), b64 = await toB64(blob);
     if (b64.length > 240000) { WK.last = "Messaggio troppo lungo"; wkUI(); return; }
-    const r = await WK.ch.send({ type: "broadcast", event: "v", payload: { b64, mime: (rec.mimeType || "audio/webm").split(";")[0], name: S.p.full_name || "collega" } });
+    const r = await WK.ch.send({ type: "broadcast", event: "v", payload: { to: WK.to === "all" ? "all" : [...WK.to], b64, mime: (rec.mimeType || "audio/webm").split(";")[0], name: S.p.full_name || "collega" } });
     WK.last = r === "ok" ? "✅ Inviato (" + Math.round((Date.now() - t0) / 1000) + " s)" : "Non inviato: controlla la connessione"; wkUI();
   };
   rec.start(); btn.classList.add("rec");
 }
 function wkRelease() { if (WK.rec && WK.rec.state === "recording") WK.rec.stop(); }
 async function walkieView() {
-  const on = lk("wk_on") === "1";
+  const on = lk("wk_on") === "1", tm = (await team0()).filter((t) => t.id !== S.p.id);
+  const pick = (id) => { if (id === "all") WK.to = "all"; else { if (WK.to === "all") WK.to = new Set(); if (WK.to.has(id)) WK.to.delete(id); else WK.to.add(id); if (!WK.to.size) WK.to = "all"; } wkUI(); };
+  const chips = h("div", { class: "chips", style: "margin:12px 0 0" }, h("button", { class: "chip wkchip", "data-id": "all", onclick: () => pick("all") }, "👥 Tutti"), tm.map((t) => h("button", { class: "chip wkchip", "data-id": t.id, onclick: () => pick(t.id) }, t.full_name)));
   const talk = h("button", { class: "wktalk", style: on ? "" : "display:none", "aria-label": "Tieni premuto e parla" }, "🎙️ Tieni premuto e parla");
   talk.addEventListener("pointerdown", (e) => { e.preventDefault(); wkTalk(talk); });
   for (const ev of ["pointerup", "pointercancel", "pointerleave"]) talk.addEventListener(ev, wkRelease);
@@ -931,6 +936,7 @@ async function walkieView() {
     h("div", { class: "card" },
       h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-size:16px" }, sw, "Walkie-talkie attivo"),
       h("p", { class: "muted", id: "wkpeers", style: "margin:10px 0 0" }), h("p", { id: "wkstat", style: "margin:6px 0 0;font-weight:600" })),
+    h("div", { class: "card" }, h("strong", {}, "Per chi?"), h("p", { class: "muted", style: "margin:4px 0 0" }, "Scegli «Tutti» oppure tocca uno o più colleghi."), chips, h("p", { id: "wkto", style: "margin:10px 0 0;font-weight:600" })),
     talk,
     h("div", { class: "card" },
       h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-weight:500" }, awake, "Tieni lo schermo acceso (consuma più batteria)")),
