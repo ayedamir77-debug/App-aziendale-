@@ -629,15 +629,22 @@ async function reportForm(sub) {
 
 /* ---------- interventi urgenti ---------- */
 async function urgentView() {
-  const rows = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").like("title", "🚨%").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
-  await loadTeam();
-  const back = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").like("title", "↩️%").neq("status", "done").order("created_at", { ascending: false }));
+  const rows = chk(await sb.from("jobs").select("*, clients(name)").like("title", "🚨%").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
+  const isBack = (j) => /↩️ DA TORNARE/.test(j.description || "");
+  const note = (j) => ((j.description || "").match(/↩️ DA TORNARE:?\s*(.*)/) || [])[1] || "";
+  const sorted = [...rows.filter(isBack), ...rows.filter((j) => !isBack(j))];
+  const card = (j) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "job", id: j.id }) },
+    h("div", { class: "row" }, h("span", { class: "when" }, j.start_at ? fDate(j.start_at) + " · " + fTime(j.start_at) : ""), isBack(j) ? h("span", { class: "badge", style: "background:#FFF1D6;color:#8A5A00" }, "↩️ Da tornare") : badge(j.status)),
+    h("div", { class: "title" }, j.title),
+    j.clients?.name ? h("div", { class: "muted" }, j.clients.name) : null,
+    j.address ? addrLink(j.address) : null,
+    isBack(j) ? h("div", { class: "note", style: "margin-top:8px" }, "↩️ " + (note(j) || "C'è da tornare"),
+      h("button", { class: "secondary", style: "width:100%;margin-top:8px", onclick: async (e) => { e.stopPropagation(); if (await attempt(async () => { chk(await sb.from("jobs").update({ description: (j.description || "").replace(/↩️ DA TORNARE:?.*/, "").trim() || null }).eq("id", j.id)); })) render(); } }, "✔ Fatto, non serve più tornare")) : null);
   return [
     h("h1", {}, "🚨 Interventi urgenti"),
     h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "urgentForm" }) }, "+ Nuovo intervento urgente"),
-    h("p", { class: "muted" }, "Compili qui: il lavoro si crea e si chiude da solo, con le ore."),
-    back.length ? [h("h2", {}, "↩️ Da tornare (" + back.length + ")"), back.map(jobCard)] : null,
-    h("h2", {}, "Fatti"), rows.length ? rows.map(jobCard) : h("p", {}, "Nessun intervento urgente.")
+    h("p", { class: "muted" }, "Un intervento = una scheda. Quelli da tornare stanno in alto."),
+    sorted.length ? sorted.map(card) : h("p", {}, "Nessun intervento urgente.")
   ];
 }
 
@@ -676,9 +683,9 @@ async function urgentForm() {
         const cid = $("u_c").value || null, cl = clientsL.find((c) => c.id === cid), day = $("u_day").value || isoDay(new Date());
         const nm = !cid ? $("u_cn").value.trim() : "";
         const base = { company_id: S.p.company_id, client_id: cid, address: $("u_ad").value.trim() || (cl && cl.address) || null, created_by: S.p.id };
-        const job = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + (nm ? nm + " — " : "") + what, status: "done", start_at: new Date().toISOString() }).select().single());
+        const back2 = $("u_back").checked ? "↩️ DA TORNARE" + ($("u_bn").value.trim() ? ": " + $("u_bn").value.trim() : "") : null;
+        const job = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + (nm ? nm + " — " : "") + what, description: back2, status: "done", start_at: new Date().toISOString() }).select().single());
         chk(await sb.from("reports").insert({ company_id: S.p.company_id, user_id: S.p.id, day, job_id: job.id, summary: $("u_done").value.trim() || what, with_ids: [...withSet], materials: [], minutes }));
-        if ($("u_back").checked) chk(await sb.from("jobs").insert({ ...base, title: "↩️ Tornare: " + (nm ? nm + " — " : "") + what, description: $("u_bn").value.trim() || null, status: "todo" }));
       });
       if (ok) back(); else e.target.disabled = false;
     } }, "Salva intervento")
