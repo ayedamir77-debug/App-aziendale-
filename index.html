@@ -1835,7 +1835,8 @@ async function calView() {
   const y = S.month.getFullYear(), m = S.month.getMonth();
   const first = new Date(y, m, 1), next = new Date(y, m + 1, 1);
   const jobs = chk(await sb.from("jobs").select("*, clients(name)").gte("start_at", first.toISOString()).lt("start_at", next.toISOString()).order("start_at"));
-  const undated = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").is("start_at", null).neq("status", "done").order("created_at", { ascending: false }).limit(60));
+  const reps = chk(await sb.from("reports").select("*, jobs(title, clients(name))").gte("day", isoDay(first)).lt("day", isoDay(next)).order("created_at"));
+  await loadTeam();
   const today = new Date();
   const offset = (first.getDay() + 6) % 7;
   const days = new Date(y, m + 1, 0).getDate();
@@ -1844,10 +1845,10 @@ async function calView() {
   for (let i = 0; i < offset; i++) cells.push(h("div"));
   for (let d = 1; d <= days; d++) {
     const date = new Date(y, m, d);
-    const has = jobs.some((j) => sameDay(D(j.start_at), date));
+    const has = jobs.some((j) => sameDay(D(j.start_at), date)) || reps.some((r) => r.day === isoDay(date));
     cells.push(h("button", { class: (sameDay(date, S.day) ? "sel " : "") + (sameDay(date, today) ? "today" : ""), "aria-label": d + "", onclick: () => { S.day = date; render(); } }, String(d), has ? h("i") : null));
   }
-  const list = jobs.filter((j) => sameDay(D(j.start_at), S.day));
+  const list = jobs.filter((j) => sameDay(D(j.start_at), S.day)), doneList = reps.filter((r) => r.day === isoDay(S.day));
   const title = first.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
   return [
     h("div", { class: "row" }, h("button", { class: "secondary", "aria-label": "Mese precedente", onclick: () => { S.month = new Date(y, m - 1, 1); S.day = new Date(y, m - 1, 1); render(); } }, "‹"),
@@ -1855,8 +1856,14 @@ async function calView() {
       h("button", { class: "secondary", "aria-label": "Mese successivo", onclick: () => { S.month = new Date(y, m + 1, 1); S.day = new Date(y, m + 1, 1); render(); } }, "›")),
     h("div", { class: "cal", style: "margin-top:14px" }, cells),
     h("h2", {}, S.day.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
-    list.length ? list.map(jobCard) : h("p", {}, "Nessun lavoro in questo giorno."),
-    undated.length ? [h("h2", {}, "📌 Da programmare (senza data)"), h("p", { class: "muted", style: "margin-top:0" }, "Metti una data dal lavoro per vederlo nel calendario."), undated.map(jobCard)] : null
+    h("h3", { style: "margin:14px 0 6px" }, "✅ Fatto (rapportini)"),
+    doneList.length ? doneList.map((r) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "reports" }) },
+      h("div", { class: "row" }, h("strong", {}, who(r.user_id)), h("span", { class: "muted" }, r.minutes != null ? dur(r.minutes * 60000) : "")),
+      r.jobs && r.jobs.title ? h("div", { class: "when" }, (r.jobs.clients && r.jobs.clients.name ? r.jobs.clients.name + " · " : "") + r.jobs.title) : null,
+      r.with_ids && r.with_ids.length ? h("div", { class: "muted" }, "Insieme a: " + r.with_ids.map(who).join(", ")) : null,
+      r.summary ? h("div", { style: "margin-top:6px;white-space:pre-wrap" }, r.summary.length > 160 ? r.summary.slice(0, 160) + "…" : r.summary) : null)) : h("p", { class: "muted" }, "Nessun rapportino in questo giorno."),
+    h("h3", { style: "margin:14px 0 6px" }, "📅 Programmato"),
+    list.length ? list.map(jobCard) : h("p", { class: "muted" }, "Nessun lavoro programmato in questo giorno.")
   ];
 }
 
