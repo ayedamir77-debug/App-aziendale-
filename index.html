@@ -998,7 +998,7 @@ async function profileView() {
   const ptest = h("button", { class: "ghost", style: "display:none" }, "Mandami una notifica di prova");
   const refresh = async () => { const on = await pushIsOn(); pst.textContent = !pushSupported() ? "Non disponibile su questo telefono/browser." : on ? "✅ Attive su questo telefono" : (Notification.permission === "denied" ? "Bloccate dal telefono: riattivale dalle impostazioni del sito." : "Non attive"); pbtn.textContent = on ? "Spegni le notifiche" : "Attiva le notifiche"; ptest.style.display = on ? "" : "none"; };
   pbtn.onclick = async () => { pbtn.disabled = true; await attempt(async () => { if (await pushIsOn()) await pushOff(); else await pushOn(); }); pbtn.disabled = false; refresh(); };
-  ptest.onclick = async () => { await attempt(async () => { const r = await pushCall({ task: "send", to: [S.p.id], includeSelf: true, title: "Light Project", body: "Notifica di prova: funziona! 🎉", url: "./?n=test" }); if (!r.tried) throw new Error("Nessun telefono registrato: attiva prima le notifiche."); }); };
+  ptest.onclick = async () => { await attempt(async () => { const r = await pushCall({ task: "send", to: [S.p.id], includeSelf: true, title: "Light Project", body: "Notifica di prova: funziona! 🎉", url: "./?n=test" }); if (!r.tried) throw new Error("Nessun telefono registrato: attiva prima le notifiche."); alert(r.sent ? "Notifica inviata a " + r.sent + " telefono/i. Se non la vedi, controlla le impostazioni notifiche del telefono." : "Il server ha provato (" + r.tried + ") ma il servizio notifiche ha rifiutato l'invio."); }); };
   setTimeout(refresh, 0);
   return [h("h1", {}, "Il mio profilo"),
     h("div", { class: "card" }, h("strong", {}, "🔔 Notifiche sul telefono"), pst, pbtn, ptest,
