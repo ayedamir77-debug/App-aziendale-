@@ -656,6 +656,8 @@ async function urgentForm() {
   return [
     h("h1", {}, "🚨 Intervento urgente"),
     h("label", { for: "u_c" }, "Cliente"), h("select", { id: "u_c" }, h("option", { value: "" }, "— nessuno —"), clientsL.map((c) => h("option", { value: c.id }, c.name))),
+    h("label", { for: "u_cn" }, "Oppure solo il nome (cliente occasionale)"), h("input", { id: "u_cn", placeholder: "Es. Signor Rossi — non resta in elenco clienti" }),
+    h("label", { for: "u_ad" }, "Indirizzo (facoltativo)"), h("input", { id: "u_ad", placeholder: "Via, numero, città" }),
     h("label", { for: "u_w" }, "Che intervento è"), h("input", { id: "u_w", placeholder: "Es. Cancello bloccato, quadro saltato" }),
     h("label", { for: "u_done" }, "Cosa hai fatto"), h("textarea", { id: "u_done", rows: "5", placeholder: "Scrivi o detta a voce 🎤" }),
     h("div", { style: "display:flex;gap:10px;margin-top:8px" }, mic.btn), mic.st,
@@ -672,10 +674,11 @@ async function urgentForm() {
       const ok = await attempt(async () => {
         const what = $("u_w").value.trim(); if (!what) throw new Error("Scrivi che intervento è stato");
         const cid = $("u_c").value || null, cl = clientsL.find((c) => c.id === cid), day = $("u_day").value || isoDay(new Date());
-        const base = { company_id: S.p.company_id, client_id: cid, address: (cl && cl.address) || null, created_by: S.p.id };
-        const job = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + what, status: "done", start_at: new Date().toISOString() }).select().single());
+        const nm = !cid ? $("u_cn").value.trim() : "";
+        const base = { company_id: S.p.company_id, client_id: cid, address: $("u_ad").value.trim() || (cl && cl.address) || null, created_by: S.p.id };
+        const job = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + (nm ? nm + " — " : "") + what, status: "done", start_at: new Date().toISOString() }).select().single());
         chk(await sb.from("reports").insert({ company_id: S.p.company_id, user_id: S.p.id, day, job_id: job.id, summary: $("u_done").value.trim() || what, with_ids: [...withSet], materials: [], minutes }));
-        if ($("u_back").checked) chk(await sb.from("jobs").insert({ ...base, title: "↩️ Tornare: " + what, description: $("u_bn").value.trim() || null, status: "todo" }));
+        if ($("u_back").checked) chk(await sb.from("jobs").insert({ ...base, title: "↩️ Tornare: " + (nm ? nm + " — " : "") + what, description: $("u_bn").value.trim() || null, status: "todo" }));
       });
       if (ok) back(); else e.target.disabled = false;
     } }, "Salva intervento")
