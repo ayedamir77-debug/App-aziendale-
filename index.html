@@ -943,6 +943,7 @@ const BUILTIN_TPL = [
   { name: "Impianto elettrico base", items: ["Differenziali e magnetotermici provati", "Messa a terra verificata", "Prese e punti luce provati", "Dichiarazione di conformità compilata"] }
 ];
 async function jobChecklists(j) {
+  if (/^(🚨|↩️)/.test(j.title || "")) return [];
   const [rows, custom] = await Promise.all([sb.from("job_checklists").select("*").eq("job_id", j.id).order("created_at").then(chk), sb.from("checklists").select("*").order("name").then(chk)]);
   const tpls = [...BUILTIN_TPL, ...custom.map((c) => ({ name: c.name, items: Array.isArray(c.items) ? c.items : [] }))];
   const sel = h("select", {}, h("option", { value: "" }, "Aggiungi una checklist…"), tpls.map((t, i) => h("option", { value: i }, t.name)));
