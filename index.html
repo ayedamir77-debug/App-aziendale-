@@ -412,7 +412,7 @@ const clean = (s) => String(s || "").replace(/[,()*%\\]/g, " ").trim();
 const cbox = (id, label, checked) => h("label", { style: "display:flex;align-items:center;gap:12px;font-size:16px;font-weight:500;margin-top:14px" }, h("input", { id, type: "checkbox", checked: !!checked, style: "width:22px;height:22px" }), label);
 const numOrNull = (v) => (v === "" || v == null || isNaN(Number(v)) ? null : Number(v));
 const delBtn = (label, fn) => h("button", { class: "danger", onclick: async () => { if (!confirm(label)) return; if (await attempt(fn)) back(); } }, "Elimina");
-async function team0() { await loadTeam(); return S.team.filter((t) => t.status === "active"); }
+async function team0() { await loadTeam(); return [S.p, ...S.team.filter((t) => t.status === "active")]; }
 const ownerNeeded = () => { if (!OWNER()) throw new Error("Solo il titolare può farlo"); };
 
 /* commenti (rapportini e bacheca) */
@@ -1740,7 +1740,7 @@ async function jobForm(id) {
   const clients = chk(await sb.from("clients").select("id,name,address").order("name"));
   const j = id ? chk(await sb.from("jobs").select("*, job_assignments(user_id)").eq("id", id).single()) : { status: "todo", job_assignments: [] };
   const assigned = new Set((j.job_assignments || []).map((a) => a.user_id));
-  const staff = S.team.filter((t) => t.status === "active");
+  const staff = [S.p, ...S.team.filter((t) => t.status === "active")];
   return [
     h("h1", {}, id ? "Modifica lavoro" : "Nuovo lavoro"),
     h("label", { for: "jt" }, "Titolo"), h("input", { id: "jt", value: j.title || "", placeholder: "Es. Impianto domotico villa" }),
@@ -1755,7 +1755,7 @@ async function jobForm(id) {
     h("div", { id: "jprev", class: "card" }, ...(() => { const p = descPoints(j.description || ""); return p.length ? [h("strong", {}, "Lista da spuntare (" + p.length + ")"), ...p.map((t) => h("div", { style: "margin:4px 0" }, "☐ " + t))] : [h("span", { class: "muted" }, "Scrivi più punti (uno per riga o separati da ;) e qui vedi la lista che si crea da sola.")]; })()),
     h("label", {}, "Assegna a"),
     staff.length ? h("div", { class: "card" }, staff.map((t) => h("label", { style: "display:flex;align-items:center;gap:12px;margin:6px 0;font-weight:500;font-size:16px" },
-      h("input", { type: "checkbox", class: "as", value: t.id, checked: assigned.has(t.id), style: "width:22px;height:22px" }), t.full_name))) : h("p", {}, "Non hai ancora dipendenti attivi."),
+      h("input", { type: "checkbox", class: "as", value: t.id, checked: assigned.has(t.id), style: "width:22px;height:22px" }), t.full_name))) : h("p", {}, "Nessuna persona attiva."),
     h("button", { class: "primary", onclick: async (e) => {
       e.target.disabled = true;
       const ok = await attempt(async () => {
