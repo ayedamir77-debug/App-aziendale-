@@ -1658,10 +1658,10 @@ async function jobsView() {
   else if (S.jobFilter === "done") list = list.filter((j) => j.status === "done").reverse();
   const chip = (k, l) => h("button", { class: "chip" + (S.jobFilter === k ? " on" : ""), onclick: () => { S.jobFilter = k; render(); } }, l);
   return [
-    h("h1", {}, OWNER() ? "Lavori" : "I miei lavori"),
+    h("h1", {}, "Lavori"),
     h("div", { class: "chips" }, chip("open", "Aperti"), chip("done", "📦 Archivio"), chip("all", "Tutti")),
     OWNER() ? h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "jobForm" }) }, "+ Nuovo lavoro") : null,
-    list.length ? list.map(jobCard) : h("p", {}, OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro assegnato per ora.")
+    list.length ? list.map(jobCard) : h("p", {}, OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro per ora.")
   ];
 }
 
