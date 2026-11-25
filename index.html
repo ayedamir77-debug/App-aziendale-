@@ -452,7 +452,7 @@ function moreView() {
     h("h1", {}, "Menu"),
     group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), own ? sq("👤", "Clienti", T("clients")) : null, sq("📝", "Rapportini", G("reports")), sq("🚨", "Urgenti", G("urgent"))]),
     group("Documenti e soldi", [sq("🗂️", "Documenti", T("docs")), own ? sq("💼", "Ufficio", T("office")) : null, own ? sq("✉️", "Solleciti", G("chase")) : null]),
-    group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Schede impianto", G("assets")), sq("📦", "Magazzino", G("stock"))]),
+    group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Impianti", G("assets")), sq("📦", "Magazzino", G("stock"))]),
     group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
     group("Mezzi e scadenze", [sq("🚐", "Mezzi", G("vehicles")), sq("🛠️", "Garanzie e manutenzioni", G("warr"))]),
     group("Strumenti", [sq("🎙️", "Walkie-talkie", G("walkie")), sq("👤", "Il mio profilo", G("profile")), sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
@@ -819,12 +819,12 @@ async function assetsView() {
   const draw = () => { const t = normT(q.value), sh = rows.filter((a) => !t || normT([a.title, a.notes, a.address_url, a.clients && a.clients.name].join(" ")).includes(t));
     list.replaceChildren(...(sh.length ? sh.map((a) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "assetForm", id: a.id }) }, h("strong", {}, a.title), h("div", { class: "muted" }, a.clients ? a.clients.name : "Senza cliente"), a.address_url ? h("div", { class: "muted" }, a.address_url) : null)) : [h("p", {}, "Nessuna scheda.")])); };
   q.addEventListener("input", draw); setTimeout(draw, 0);
-  return [h("h1", {}, "Schede impianto"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "assetForm" }) }, "+ Nuova scheda"), h("div", { style: "margin-top:12px" }, q), h("div", { style: "margin-top:12px" }, list)];
+  return [h("h1", {}, "Impianti"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "assetForm" }) }, "+ Nuovo impianto"), h("div", { style: "margin-top:12px" }, q), h("div", { style: "margin-top:12px" }, list)];
 }
 async function assetForm(sub) {
   const [a, clients] = await Promise.all([sub.id ? sb.from("assets").select("*").eq("id", sub.id).single().then(chk) : Promise.resolve({}), sb.from("clients").select("id,name").order("name").then(chk)]);
   const sec = h("input", { id: "a_s", type: "password", value: a.secret || "", autocomplete: "off" });
-  return [h("h1", {}, sub.id ? "Scheda impianto" : "Nuova scheda impianto"),
+  return [h("h1", {}, sub.id ? "Impianto" : "Nuovo impianto"),
     h("div", { class: "note", style: "margin-top:0" }, "Attenzione: tutto quello che scrivi qui è visibile a tutti i colleghi dell'azienda."),
     h("label", { for: "a_t" }, "Nome impianto"), h("input", { id: "a_t", value: a.title || "", placeholder: "Es. Villa Rossi – Home Assistant" }),
     h("label", { for: "a_c" }, "Cliente"), h("select", { id: "a_c" }, h("option", { value: "" }, "— nessuno —"), clients.map((c) => h("option", { value: c.id, selected: a.client_id === c.id }, c.name))),
@@ -1316,7 +1316,7 @@ async function searchView() {
       sec("Lavori", jobs.map((j) => item(j.title, null, () => go({ t: "job", id: j.id }), j.address))), sec("Clienti", cl.map((c) => item(c.name, c.phone, () => go({ t: "client", id: c.id }), c.address))),
       sec("Documenti", docs.map((d) => item(d.file_name || d.title || "Documento", [KINDS[d.kind], d.counterparty].filter(Boolean).join(" · "), () => openDoc(d)))),
       sec("Biblioteca tecnica", lib.map((l) => item(l.title, [l.brand, l.model].filter(Boolean).join(" "), () => (l.file_path ? openDoc(l) : l.url ? window.open(l.url, "_blank") : go({ t: "libForm", id: l.id }))))),
-      sec("Magazzino", stock.map((s) => item(s.description, (s.code ? s.code + " · " : "") + Number(s.quantity) + (s.unit ? " " + s.unit : ""), () => go({ t: "stockForm", id: s.id })))), sec("Schede impianto", assets.map((a) => item(a.title, "", () => go({ t: "assetForm", id: a.id })))),
+      sec("Magazzino", stock.map((s) => item(s.description, (s.code ? s.code + " · " : "") + Number(s.quantity) + (s.unit ? " " + s.unit : ""), () => go({ t: "stockForm", id: s.id })))), sec("Impianti", assets.map((a) => item(a.title, "", () => go({ t: "assetForm", id: a.id })))),
       sec("Rapportini", reps.map((r) => item(dayLabel(r.day), (r.summary || "").slice(0, 100), () => go({ t: "reports" })))), sec("Bacheca", posts.map((p) => item((p.body || "").slice(0, 80), "", () => go({ t: "posts" }))))
     ].filter(Boolean);
     out.replaceChildren(...(nodes.length ? nodes.flat(Infinity) : [h("p", {}, "Niente trovato.")]));
@@ -3020,7 +3020,7 @@ const APP_NEWS = [
   ["Rapportini di fine giornata", "Cosa si è fatto, con chi eri, materiale nostro o comprato (confrontato con le bolle) e commenti per chiarimenti. Visibili a tutti, nessun obbligo."],
   ["Magazzino", "Elenco del materiale in sede, con + e −, e creazione dell'elenco da foto di etichette."],
   ["Biblioteca tecnica", "Schede, manuali e istruzioni per centraline, orologi, termostati… cercabili anche per parole dentro il PDF."],
-  ["Schede impianto", "IP, accessi e note di ogni casa, collegate al cliente."],
+  ["Impianti", "IP, accessi e note di ogni casa, collegate al cliente."],
   ["Radio", "Ascolto in app con ricerca, preferiti, sezione solo musica e timer di spegnimento. Nessuna pubblicità nell'app."],
   ["Firma del cliente e rapporto PDF", "A fine intervento il cliente firma sul telefono e si crea il PDF nei documenti del lavoro."],
   ["Foto prima/dopo e checklist", "Foto etichettate prima e dopo; checklist da spuntare per tipo di impianto."],
