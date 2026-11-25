@@ -339,7 +339,7 @@ const nameOf = (id) => (S.team.find((t) => t.id === id) || {}).full_name || "";
 
 function go(sub) { S.stack.push({ tab: S.tab, sub: S.sub }); S.sub = sub; history.pushState({}, ""); render(); window.scrollTo(0, 0); }
 function back() { if (S.stack.length) history.back(); else { S.sub = null; render(); } }
-function setTab(t) { S.tab = t; S.sub = null; S.stack = []; render(); window.scrollTo(0, 0); }
+function setTab(t) { if (S.p && (t !== S.tab || S.sub)) { S.stack.push({ tab: S.tab, sub: S.sub }); history.pushState({}, ""); } S.tab = t; S.sub = null; render(); window.scrollTo(0, 0); }
 window.addEventListener("popstate", () => {
   if (!S.p) return;
   const x = S.stack.pop();
