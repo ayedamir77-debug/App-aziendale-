@@ -2018,7 +2018,7 @@ async function clientView(id) {
     h("h1", {}, c.name),
     h("div", { class: "card" },
       c.phone ? h("div", {}, h("a", { class: "link", href: telUrl(c.phone) }, "📞 " + c.phone)) : null,
-      c.email ? h("div", {}, h("a", { class: "link", href: "mailto:" + encodeURIComponent(c.email) }, "✉️ " + c.email)) : null,
+      c.email ? h("div", {}, h("a", { class: "link", href: "mailto:" + c.email }, "✉️ " + c.email)) : null,
       c.address ? h("div", {}, h("a", { class: "link", href: mapsUrl(c.address), target: "_blank", rel: "noopener" }, "🗺️ " + c.address)) : null,
       c.notes ? h("p", { style: "white-space:pre-wrap;margin-top:8px" }, c.notes) : null,
       !c.phone && !c.email && !c.address && !c.notes ? h("p", {}, "Nessun dettaglio.") : null),
