@@ -579,10 +579,13 @@ async function reportForm(sub) {
   const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
   const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
   const pre = rep || draft || {};
-  let [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,status,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(200).then(chk), team0()]);
+  let [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,status,description,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(200).then(chk), team0()]);
   jobs = jobs.filter((j) => j.id === pre.job_id || (j.status !== "done" && j.status !== "void" && !/^\s*🚨/.test(j.title || "")));
   const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
   const withSet = new Set(pre.with_ids || (rep ? [] : [S.p.id]));
+  const markOf = (jid) => { const jj = jobs.find((x) => x.id === jid); const m = jj && (jj.description || "").match(/↩️ DA TORNARE:?[ \t]*(.*)/); return m ? (m[1] || "").trim() : ""; };
+  const backInit = markOf(pre.job_id || (rep && rep.job_id) || "");
+  let backTouched = false;
   const matBox = h("div"); let bolle = [];
   const loadBolle = async () => { const jid = $("r_job") && $("r_job").value; bolle = jid ? chk(await sb.from("documents").select("id,title,doc_date").eq("job_id", jid).eq("kind", "bolla").order("created_at", { ascending: false })) : []; drawMats(); };
   const drawMats = () => {
@@ -626,7 +629,7 @@ async function reportForm(sub) {
     h("label", {}, "Ore di lavoro (facoltativo)"),
     h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "r_from", type: "time", onchange: calcMan })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "r_to", type: "time", onchange: calcMan }))),
     h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "r_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calcMan }), manBox,
-    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: () => { stash(); loadBolle().catch(() => {}); } }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title)))),
+    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: () => { stash(); loadBolle().catch(() => {}); if ($("r_back") && !backTouched) $("r_back").value = markOf($("r_job").value); } }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title)))),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
     (() => {
       const m = micButton({ get value() { return $("r_sum").value; }, set value(v) { $("r_sum").value = v; } }, stash);
@@ -650,6 +653,9 @@ async function reportForm(sub) {
     })(),
     h("label", {}, "Chi ha fatto il lavoro"),
     tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
+    h("label", { for: "r_back" }, "↩️ Cosa manca / devo tornare (facoltativo)"),
+    h("textarea", { id: "r_back", rows: "3", oninput: () => { backTouched = true; }, placeholder: "Es. portare il motore del cancello 2, impostare gli orari. Si aggiorna anche nel lavoro." }, backInit),
+    h("div", { class: "muted", style: "font-size:13px;margin:2px 0 4px" }, "Se non manca più niente, lascia vuoto: nel lavoro sparisce l'avviso «Da tornare»."),
     h("h2", {}, "Materiale usato"), matBox,
     h("button", { class: "secondary", style: "width:100%", onclick: () => { mats.push({ desc: "", qty: null, unit: "", src: "nostro" }); drawMats(); } }, "+ Aggiungi materiale"),
     h("button", { class: "primary", onclick: async (e) => {
@@ -672,6 +678,17 @@ async function reportForm(sub) {
         const row = { day, job_id: jobId, summary: summary || null, with_ids: [...withSet], materials: cm, minutes };
         if (rep) chk(await sb.from("reports").update(row).eq("id", rep.id)); else chk(await sb.from("reports").insert({ ...row, company_id: S.p.company_id, user_id: S.p.id }));
         sk("rep_draft", "");
+        /* aggiorna "Da tornare" nel lavoro */
+        if (jobId) {
+          const nb = ($("r_back") ? $("r_back").value : "").trim().replace(/\s*\n\s*/g, " ");
+          if (nb !== markOf(jobId)) {
+            try {
+              const cur = chk(await sb.from("jobs").select("description").eq("id", jobId).single());
+              const base = (cur.description || "").replace(/\n?↩️ DA TORNARE:?.*/, "").trim();
+              chk(await sb.from("jobs").update({ description: ((base ? base + "\n" : "") + (nb ? "↩️ DA TORNARE: " + nb : "")).trim() || null }).eq("id", jobId));
+            } catch (er) { alert("Rapportino salvato, ma non sono riuscito ad aggiornare «Da tornare» nel lavoro: " + translate(er.message || er)); }
+          }
+        }
       });
       if (ok) back(); else e.target.disabled = false;
     } }, "Salva rapportino")
