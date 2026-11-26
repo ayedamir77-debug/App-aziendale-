@@ -520,6 +520,7 @@ async function reportsView() {
       mats.length ? h("div", { style: "margin-top:6px" }, h("div", { class: "muted" }, "Materiale"), cmp.map(({ m, hit }) => {
         let tag = "";
         if (m.src === "nostro") tag = "🏭 nostro";
+        else if (m.bolla_id) tag = "🧾 " + (m.bolla_title || "in bolla");
         else if (hit) { const q = numOrNull(hit.quantity); tag = "✅ in bolla" + (q != null && m.qty != null && q !== Number(m.qty) ? " (in bolla: " + q + ")" : ""); } else tag = "⚠️ comprato, bolla non trovata";
         return h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, m.desc + (m.qty != null ? " · " + m.qty + " " + (m.unit || "") : "")), h("span", { class: "muted", style: "text-align:right" }, tag));
       })) : null,
@@ -567,7 +568,8 @@ async function reportForm(sub) {
   jobs = jobs.filter((j) => j.id === pre.job_id || (j.status !== "done" && j.status !== "void" && !/^\s*🚨/.test(j.title || "")));
   const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
   const withSet = new Set(pre.with_ids || (rep ? [] : [S.p.id]));
-  const matBox = h("div");
+  const matBox = h("div"); let bolle = [];
+  const loadBolle = async () => { const jid = $("r_job") && $("r_job").value; bolle = jid ? chk(await sb.from("documents").select("id,title,doc_date").eq("job_id", jid).eq("kind", "bolla").order("created_at", { ascending: false })) : []; drawMats(); };
   const drawMats = () => {
     matBox.replaceChildren(...mats.map((m, i) => h("div", { class: "card", style: "padding:10px 12px" },
       h("input", { value: m.desc || "", placeholder: "Materiale (es. cavo 3x1.5)", oninput: (e) => { m.desc = e.target.value; stash(); } }),
@@ -575,8 +577,13 @@ async function reportForm(sub) {
         h("input", { type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità", value: m.qty != null ? m.qty : "", oninput: (e) => { m.qty = numOrNull(e.target.value); stash(); } }),
         h("input", { placeholder: "Unità", value: m.unit || "", oninput: (e) => { m.unit = e.target.value; stash(); } })),
       h("div", { class: "sp", style: "margin-top:8px" },
-        h("select", { onchange: (e) => { m.src = e.target.value; stash(); } }, [["nostro", "Nostro (magazzino)"], ["comprato", "Comprato"], ["recuperato", "♻️ Recuperato → va in magazzino"]].map(([k, l]) => h("option", { value: k, selected: (m.src || "nostro") === k }, l))),
-        h("button", { class: "deny", style: "height:48px;flex:0 0 52px", "aria-label": "Rimuovi", onclick: () => { mats.splice(i, 1); drawMats(); stash(); } }, "✕")))));
+        h("select", { onchange: (e) => { m.src = e.target.value; stash(); drawMats(); } }, [["nostro", "Nostro (magazzino)"], ["comprato", "Comprato"], ["recuperato", "♻️ Recuperato → va in magazzino"]].map(([k, l]) => h("option", { value: k, selected: (m.src || "nostro") === k }, l))),
+        h("button", { class: "deny", style: "height:48px;flex:0 0 52px", "aria-label": "Rimuovi", onclick: () => { mats.splice(i, 1); drawMats(); stash(); } }, "✕")),
+      m.src === "comprato" ? h("div", { style: "margin-top:8px" }, h("div", { class: "muted" }, "🧾 In quale bolla è?"),
+        h("select", { onchange: (e) => { const b = bolle.find((x) => x.id === e.target.value); m.bolla_id = b ? b.id : null; m.bolla_title = b ? (b.title || "Bolla") : null; stash(); } },
+          h("option", { value: "" }, bolle.length ? "— scegli la bolla —" : "— nessuna bolla caricata per questo lavoro —"),
+          bolle.map((b) => h("option", { value: b.id, selected: m.bolla_id === b.id }, (b.doc_date ? fDate(b.doc_date) + " · " : "") + (b.title || "Bolla")))),
+        !m.bolla_id ? h("div", { class: "muted", style: "font-size:13px;margin-top:4px" }, "Se non l'hai ancora caricata, salva lo stesso: nel Riepilogo resta l'avviso «Manca la bolla».") : null) : null)));
   };
   const stash = () => { if (rep) return; sk("rep_draft", JSON.stringify({ day: $("r_day") && $("r_day").value, job_id: $("r_job") && $("r_job").value, summary: $("r_sum") && $("r_sum").value, with_ids: [...withSet], materials: mats })); };
   const hoursBox = h("div", { class: "muted" }, "");
@@ -597,14 +604,14 @@ async function reportForm(sub) {
     m -= Math.max(0, Number($("r_brk").value) || 0); if (m < 0) m = 0;
     manual = true; minutes = m; manBox.textContent = "Totale ore: " + dur(m * 60000);
   };
-  setTimeout(() => { drawMats(); calcHours().catch(() => {}); }, 0);
+  setTimeout(() => { drawMats(); loadBolle().catch(() => {}); calcHours().catch(() => {}); }, 0);
   return [
     h("h1", {}, rep ? "Modifica rapportino" : "Rapportino di oggi"),
     h("label", { for: "r_day" }, "Giorno"), h("input", { id: "r_day", type: "date", value: pre.day || isoDay(new Date()), onchange: () => { calcHours().catch(() => {}); stash(); } }), hoursBox,
     h("label", {}, "Ore di lavoro (facoltativo)"),
     h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "r_from", type: "time", onchange: calcMan })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "r_to", type: "time", onchange: calcMan }))),
     h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "r_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calcMan }), manBox,
-    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: stash }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title)))),
+    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: () => { stash(); loadBolle().catch(() => {}); } }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title)))),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
     (() => {
       const m = micButton({ get value() { return $("r_sum").value; }, set value(v) { $("r_sum").value = v; } }, stash);
@@ -634,7 +641,7 @@ async function reportForm(sub) {
       e.target.disabled = true;
       const ok = await attempt(async () => {
         const day = $("r_day").value; if (!day) throw new Error("Scegli il giorno");
-        const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro", stocked: m.stocked || undefined }));
+        const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro", stocked: m.stocked || undefined, bolla_id: m.src === "comprato" ? (m.bolla_id || undefined) : undefined, bolla_title: m.src === "comprato" ? (m.bolla_title || undefined) : undefined }));
         if (!summary && !cm.length) throw new Error("Scrivi cosa hai fatto o il materiale usato");
         let jobId = $("r_job").value || null;
         /* materiale recuperato: lo metto nel magazzino (una sola volta) */
@@ -1209,6 +1216,10 @@ async function jobCostCard(j, docs) {
     h("p", { class: "muted", style: "margin:8px 0 0" }, "Le fatture emesse si collegano al lavoro dalla scheda fattura."))];
 }
 
+async function dropDocMaterials(d) {
+  if (!d || !d.job_id || d.kind !== "bolla" || !Array.isArray(d.items)) return;
+  for (const it of d.items) { if (!it || !it.desc) continue; try { const r = await sb.from("job_materials").select("id").eq("job_id", d.job_id).eq("description", it.desc).limit(1); if (r.data && r.data[0]) await sb.from("job_materials").delete().eq("id", r.data[0].id); } catch {} }
+}
 /* ---------- riepilogo del lavoro (a oggi) ---------- */
 async function jobSummaryView(sub) {
   const id = sub.id;
@@ -1940,7 +1951,7 @@ function openPhoto(d, url) {
       h("a", { class: "link", style: "color:#fff;flex:1;text-align:center;line-height:44px", href: url, target: "_blank", rel: "noopener" }, "Apri intera"),
       canDel ? h("button", { class: "deny", style: "color:#A32121", onclick: async () => {
         if (!confirm("Eliminare questa foto?")) return;
-        if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); })) { close(); render(); }
+        if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); await dropDocMaterials(d); })) { close(); render(); }
       } }, "Elimina") : null));
   document.body.appendChild(ov);
 }
@@ -2221,7 +2232,7 @@ function docItem(d, showJob) {
       OWNER() && d.kind === "fattura" ? h("button", { class: "deny", onclick: async () => { if (await attempt(async () => { chk(await sb.from("documents").update({ paid: !d.paid }).eq("id", d.id)); })) render(); } }, d.paid ? "Segna da pagare" : "Segna pagata") : null,
       mine ? h("button", { class: "deny", onclick: async () => {
         if (!confirm("Eliminare questo documento?")) return;
-        if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); })) render();
+        if (await attempt(async () => { if (OWNER()) await sb.storage.from("docs").remove([d.file_path]); chk(await sb.from("documents").delete().eq("id", d.id)); await dropDocMaterials(d); })) render();
       } }, "Elimina") : null));
 }
 const docYear = (d) => String(d.doc_date || d.created_at || "").slice(0, 4);
