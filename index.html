@@ -499,17 +499,18 @@ async function repList(jobIds, empty) {
     h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); go({ t: "reports" }); } }, "Apri nei rapportini (commenti e materiale)")));
 }
 async function reportsView() {
-  const since = isoDay(new Date(Date.now() - 45 * 864e5));
-  const list = chk(await sb.from("reports").select("*, jobs(title, clients(name))").gte("day", since).order("day", { ascending: false }).order("created_at", { ascending: false }).limit(80));
+  if (!S.repDay) S.repDay = isoDay(new Date());
+  const list = chk(await sb.from("reports").select("*, jobs(title, clients(name))").eq("day", S.repDay).order("created_at", { ascending: false }).limit(100));
   await loadTeam();
   const cm = await commentsFor("report", list.map((r) => r.id));
   const jobIds = [...new Set(list.map((r) => r.job_id).filter(Boolean))];
   const jm = jobIds.length ? chk(await sb.from("job_materials").select("job_id,description,quantity,unit").in("job_id", jobIds)) : [];
-  const byDay = {}; for (const r of list) (byDay[r.day] = byDay[r.day] || []).push(r);
+  const allReps = jobIds.length ? chk(await sb.from("reports").select("job_id,materials").in("job_id", jobIds)) : [];
+  const shift = (n) => { const d = new Date(S.repDay + "T12:00"); d.setDate(d.getDate() + n); S.repDay = isoDay(d); render(); };
   const card = (r) => {
     const mats = (Array.isArray(r.materials) ? r.materials : []).filter((m) => m.src !== "recuperato"), recov = (Array.isArray(r.materials) ? r.materials : []).filter((m) => m.src === "recuperato"), jobMats = jm.filter((x) => x.job_id === r.job_id);
     const cmp = compareMats(mats, jobMats);
-    const allRep = list.filter((x) => x.job_id === r.job_id).flatMap((x) => (Array.isArray(x.materials) ? x.materials : []).filter((m) => m.src !== "recuperato"));
+    const allRep = allReps.filter((x) => x.job_id === r.job_id).flatMap((x) => (Array.isArray(x.materials) ? x.materials : []).filter((m) => m.src !== "recuperato"));
     const unsigned = r.job_id ? jobMats.filter((b) => !compareMats(allRep, [b])[0] || !compareMats(allRep, [b])[0].hit) : [];
     const mine = r.user_id === S.p.id;
     return h("div", { class: "card" },
@@ -534,7 +535,13 @@ async function reportsView() {
     h("h1", {}, "Rapportini"),
     h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "reportForm" }) }, "+ Nuovo rapportino"),
     h("p", { class: "muted", style: "margin-top:10px" }, "Visibili a tutti. Compilarlo è facoltativo: l'app non manda avvisi a chi non lo fa."),
-    Object.keys(byDay).length ? Object.keys(byDay).map((d) => [h("h2", { style: "text-transform:capitalize" }, dayLabel(d)), byDay[d].map(card)]) : h("p", {}, "Ancora nessun rapportino.")
+    h("div", { class: "row", style: "margin:14px 0 4px;gap:8px" },
+      h("button", { class: "secondary", style: "flex:0 0 52px", "aria-label": "Giorno prima", onclick: () => shift(-1) }, "‹"),
+      h("input", { type: "date", value: S.repDay, style: "flex:1;margin:0", onchange: (e) => { if (e.target.value) { S.repDay = e.target.value; render(); } } }),
+      h("button", { class: "secondary", style: "flex:0 0 52px", "aria-label": "Giorno dopo", onclick: () => shift(1) }, "›")),
+    S.repDay !== isoDay(new Date()) ? h("button", { class: "ghost", onclick: () => { S.repDay = isoDay(new Date()); render(); } }, "Torna a oggi") : null,
+    h("h2", { style: "text-transform:capitalize" }, dayLabel(S.repDay)),
+    list.length ? list.map(card) : h("p", { class: "muted" }, "Nessun rapportino in questo giorno.")
   ];
 }
 function tidyText(t) {
