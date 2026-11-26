@@ -589,7 +589,7 @@ async function reportForm(sub) {
   const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
   const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
   const pre = rep || draft || {};
-  let [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,status,description,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(200).then(chk), team0()]);
+  let [jobs, tm, clientsAll] = await Promise.all([sb.from("jobs").select("id,title,start_at,status,description,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(200).then(chk), team0(), sb.from("clients").select("id,name").order("name").then(chk)]);
   jobs = jobs.filter((j) => j.id === pre.job_id || (j.status !== "done" && j.status !== "void" && !/^\s*🚨/.test(j.title || "")));
   const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
   const withSet = new Set(pre.with_ids || (rep ? [] : [S.p.id]));
@@ -597,7 +597,7 @@ async function reportForm(sub) {
   const backInit = markOf(pre.job_id || (rep && rep.job_id) || "");
   let backTouched = false;
   const matBox = h("div"); let bolle = [];
-  const loadBolle = async () => { const jid = $("r_job") && $("r_job").value; bolle = jid ? chk(await sb.from("documents").select("id,title,doc_date").eq("job_id", jid).eq("kind", "bolla").order("created_at", { ascending: false })) : []; drawMats(); };
+  const loadBolle = async () => { const jid = $("r_job") && $("r_job").value; bolle = jid && !jid.startsWith("client:") ? chk(await sb.from("documents").select("id,title,doc_date").eq("job_id", jid).eq("kind", "bolla").order("created_at", { ascending: false })) : []; drawMats(); };
   const drawMats = () => {
     matBox.replaceChildren(...mats.map((m, i) => h("div", { class: "card", style: "padding:10px 12px" },
       h("input", { value: m.desc || "", placeholder: "Materiale (es. cavo 3x1.5)", oninput: (e) => { m.desc = e.target.value; stash(); } }),
@@ -639,7 +639,7 @@ async function reportForm(sub) {
     h("label", {}, "Ore di lavoro (facoltativo)"),
     h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "r_from", type: "time", onchange: calcMan })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "r_to", type: "time", onchange: calcMan }))),
     h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "r_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calcMan }), manBox,
-    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), jobPick("r_job", jobs, pre.job_id, () => { stash(); loadBolle().catch(() => {}); if ($("r_back") && !backTouched) $("r_back").value = markOf($("r_job").value); })),
+    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro o cliente"), jobPick("r_job", jobs, pre.job_id, () => { stash(); loadBolle().catch(() => {}); if ($("r_back") && !backTouched) $("r_back").value = markOf($("r_job").value); }, clientsAll)),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
     (() => {
       const m = micButton({ get value() { return $("r_sum").value; }, set value(v) { $("r_sum").value = v; } }, stash);
@@ -675,6 +675,13 @@ async function reportForm(sub) {
         const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro", stocked: m.stocked || undefined, bolla_id: m.src === "comprato" ? (m.bolla_id || undefined) : undefined, bolla_title: m.src === "comprato" ? (m.bolla_title || undefined) : undefined }));
         if (!summary && !cm.length) throw new Error("Scrivi cosa hai fatto o il materiale usato");
         let jobId = $("r_job").value || null;
+        if (jobId && jobId.startsWith("client:")) {
+          const cid = jobId.slice(7);
+          const ex = chk(await sb.from("jobs").select("id,status").eq("client_id", cid).eq("title", "Interventi vari").limit(5));
+          const use = ex.find((x) => x.status !== "void") || null;
+          if (use) { jobId = use.id; if (use.status === "done") chk(await sb.from("jobs").update({ status: "doing" }).eq("id", use.id)); }
+          else { const nj = chk(await sb.from("jobs").insert({ company_id: S.p.company_id, client_id: cid, title: "Interventi vari", status: "doing", created_by: S.p.id }).select("id").single()); jobId = nj.id; }
+        }
         /* materiale recuperato: lo metto nel magazzino (una sola volta) */
         for (const m of mats) {
           if (m.src !== "recuperato" || m.stocked || !(m.desc || "").trim()) continue;
@@ -2481,11 +2488,11 @@ function buildPdf(pages) {
 }
 
 /* scelta del lavoro: pagina interna (sopra il modulo) con clienti > lavori, poi si torna dove eri */
-function jobPick(id, jobs, cur, onChange) {
+function jobPick(id, jobs, cur, onChange, clients) {
   const lab = (j) => (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title;
   const hid = h("input", { type: "hidden", id, value: cur || "" });
   const btn = h("button", { type: "button", class: "secondary", style: "width:100%;text-align:left;justify-content:flex-start" });
-  const show = () => { const j = jobs.find((x) => x.id === hid.value); btn.textContent = j ? "🔧 " + lab(j) : "— nessuno — (tocca per scegliere)"; };
+  const show = () => { const v = hid.value, j = jobs.find((x) => x.id === v), c = v.startsWith("client:") && clients ? clients.find((x) => "client:" + x.id === v) : null; btn.textContent = j ? "🔧 " + lab(j) : c ? "👤 " + c.name + " — solo cliente (senza lavoro)" : "— nessuno — (tocca per scegliere)"; };
   const pick = (v) => { hid.value = v || ""; show(); if (onChange) onChange(); };
   btn.onclick = () => {
     const ov = h("div", { style: "position:fixed;inset:0;z-index:60;background:#F5F7F9;overflow:auto;padding:16px 16px 40px" });
@@ -2494,10 +2501,12 @@ function jobPick(id, jobs, cur, onChange) {
     const draw = () => {
       const t = q.value.trim().toLowerCase(), by = {};
       for (const j of jobs) { if (t && !lab(j).toLowerCase().includes(t)) continue; const cn = (j.clients && j.clients.name) || "Senza cliente"; (by[cn] = by[cn] || []).push(j); }
+      if (clients) for (const c of clients) { if (t && !c.name.toLowerCase().includes(t)) continue; by[c.name] = by[c.name] || []; }
       const names = Object.keys(by).sort((a, b) => (a === "Senza cliente") - (b === "Senza cliente") || a.localeCompare(b));
       list.replaceChildren(h("button", { type: "button", class: "secondary", style: "width:100%;margin-bottom:10px", onclick: () => { pick(""); close(); } }, "— nessun lavoro —"),
-        ...(names.length ? names.map((cn) => h("details", { class: "card", open: (t || names.length === 1 || by[cn].some((j) => j.id === hid.value)) ? true : undefined, style: "padding:6px 14px" },
+        ...(names.length ? names.map((cn) => h("details", { class: "card", open: (t || names.length === 1 || by[cn].some((j) => j.id === hid.value) || hid.value === "client:" + ((clients || []).find((c) => c.name === cn) || {}).id) ? true : undefined, style: "padding:6px 14px" },
           h("summary", { style: "font-weight:700;padding:8px 0" }, (cn === "Senza cliente" ? "📂 " : "👤 ") + cn + " (" + by[cn].length + ")"),
+          clients && clients.find((c) => c.name === cn) ? h("button", { type: "button", class: "primary", style: "width:100%;margin:6px 0;height:46px", onclick: () => { pick("client:" + clients.find((c) => c.name === cn).id); close(); } }, "➕ Solo cliente (senza lavoro)") : null,
           by[cn].map((j) => h("button", { type: "button", class: "secondary", style: "width:100%;text-align:left;margin:4px 0;" + (j.id === hid.value ? "border-color:#0B1F5C;background:#E8ECF8" : ""), onclick: () => { pick(j.id); close(); } }, (j.title.startsWith("🚨") ? "" : "🔧 ") + j.title)))) : [h("p", { class: "muted" }, "Nessun lavoro trovato.")]));
     };
     q.oninput = draw; draw();
