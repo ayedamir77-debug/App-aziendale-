@@ -507,7 +507,7 @@ async function trendView() {
   /* lavori */
   const open = jobs.filter((j) => j.status !== "done" && j.status !== "void"), urg = (j) => /^\s*🚨/.test(j.title || "");
   const toBack = open.filter((j) => /↩️ DA TORNARE/.test(j.description || ""));
-  const newJ = jobs.filter((j) => inP(j.created_at));
+  const newJ = jobs.filter((j) => inP(j.created_at) && j.status !== "void");
   /* ore */
   let tot = 0; const per = {}, perJob = {}, bucket = {};
   for (const r of reps) if (r.minutes != null) {
@@ -591,15 +591,34 @@ async function repList(jobIds, empty, opt) {
     r.summary ? h("div", { style: "white-space:pre-wrap;margin-top:6px" }, r.summary) : null,
     h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); go({ t: "reports" }); } }, "Apri nei rapportini (commenti e materiale)")));
 }
+/* scelta da elenco lungo: pagina interna con ricerca */
+function listPickOv(title, opts, cur, onPick) {
+  const ov = h("div", { style: "position:fixed;inset:0;z-index:60;background:#F5F7F9;overflow:auto;padding:16px 16px 40px" });
+  const close = () => ov.remove(), list = h("div"), q = h("input", { type: "search", placeholder: "Cerca…", style: "margin:10px 0" });
+  const draw = () => { const t = q.value.trim().toLowerCase(); list.replaceChildren(h("button", { type: "button", class: "secondary", style: "width:100%;margin-bottom:8px", onclick: () => { onPick(""); close(); } }, "Tutti"), ...opts.filter((o) => !t || o.l.toLowerCase().includes(t)).map((o) => h("button", { type: "button", class: "secondary", style: "width:100%;text-align:left;margin:4px 0;" + (o.v === cur ? "border-color:#0B1F5C;background:#E8ECF8" : ""), onclick: () => { onPick(o.v); close(); } }, o.l))); };
+  q.oninput = draw; draw();
+  ov.append(h("div", { class: "row" }, h("h1", { style: "margin:0" }, title), h("button", { type: "button", class: "ghost", onclick: close }, "Chiudi")), q, list);
+  document.body.append(ov);
+}
 async function reportsView() {
   if (!S.repDay) S.repDay = isoDay(new Date());
-  const rq = String(S.repQ || "").trim().toLowerCase();
+  const rq0 = String(S.repQ || "").trim().toLowerCase();
+  const cat = S.repCat || "all", fcli = S.repCli || "", fwho = S.repWho || "";
+  const filt = cat !== "all" || !!fcli || !!fwho;
+  const rq = rq0 || filt ? (rq0 || "\u0000") : "";      /* "tutti i giorni" quando c'è ricerca o filtro */
+  const isUrg = (r) => !!(r.jobs && /^\s*🚨/.test(r.jobs.title || "")), isVari = (r) => !!(r.jobs && r.jobs.title === "Interventi vari");
   let list;
+  const sel = "*, jobs(title, status, clients(name))";
   if (rq) {
-    const all0 = chk(await sb.from("reports").select("*, jobs(title, clients(name))").order("day", { ascending: false }).order("created_at", { ascending: false }).limit(400));
-    list = all0.filter((r) => ((r.jobs ? r.jobs.title : "") + " " + (r.jobs && r.jobs.clients ? r.jobs.clients.name : "") + " " + (r.summary || "")).toLowerCase().includes(rq)).slice(0, S.repLim || 10);
-  } else list = chk(await sb.from("reports").select("*, jobs(title, clients(name))").eq("day", S.repDay).order("created_at", { ascending: false }).limit(100));
-  await loadTeam();
+    const all0 = chk(await sb.from("reports").select(sel).order("day", { ascending: false }).order("created_at", { ascending: false }).limit(800));
+    list = all0.filter((r) => !(r.jobs && r.jobs.status === "void")
+      && (cat === "all" || (cat === "urg" ? isUrg(r) : cat === "vari" ? isVari(r) : (r.job_id && !isUrg(r) && !isVari(r))))
+      && (!fcli || (r.jobs && r.jobs.clients && r.jobs.clients.name === fcli))
+      && (!fwho || r.user_id === fwho || (r.with_ids || []).includes(fwho))
+      && (!rq0 || ((r.jobs ? r.jobs.title : "") + " " + (r.jobs && r.jobs.clients ? r.jobs.clients.name : "") + " " + (r.summary || "")).toLowerCase().includes(rq0))).slice(0, S.repLim || 10);
+  } else list = chk(await sb.from("reports").select(sel).eq("day", S.repDay).order("created_at", { ascending: false }).limit(100)).filter((r) => !(r.jobs && r.jobs.status === "void"));
+  const clAll = chk(await sb.from("clients").select("name").order("name"));
+  await loadTeam(); const tm0 = await team0();
   const cm = await commentsFor("report", list.map((r) => r.id));
   const jobIds = [...new Set(list.map((r) => r.job_id).filter(Boolean))];
   const jm = jobIds.length ? chk(await sb.from("job_materials").select("job_id,description,quantity,unit").in("job_id", jobIds)) : [];
@@ -634,7 +653,11 @@ async function reportsView() {
     h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "reportForm" }) }, "+ Nuovo rapportino"),
     h("p", { class: "muted", style: "margin-top:10px" }, "Visibili a tutti. Compilarlo è facoltativo: l'app non manda avvisi a chi non lo fa."),
     h("input", { type: "search", placeholder: "Cerca per cliente o lavoro…", value: S.repQ || "", style: "margin-top:12px", enterkeyhint: "search", onkeydown: (e) => { if (e.key === "Enter") { S.repQ = e.target.value; S.repLim = 10; render(); } }, onsearch: (e) => { if (!e.target.value && S.repQ) { S.repQ = ""; render(); } } }),
-    rq ? h("div", { class: "muted", style: "margin:6px 0" }, "Risultati della ricerca in tutti i giorni (premi Invio). ", h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); S.repQ = ""; render(); } }, "Cancella ricerca")) : null,
+    h("div", { class: "chips", style: "margin:10px 0 6px" }, [["all", "Tutti"], ["lav", "🔧 Lavori"], ["urg", "🚨 Urgenze"], ["vari", "🧰 Interventi vari"]].map(([k, l]) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { S.repCat = k; S.repLim = 10; render(); } }, l))),
+    h("div", { class: "row", style: "gap:8px;margin-bottom:6px" },
+      h("button", { class: "secondary" + (fcli ? " on" : ""), style: "flex:1;margin:0;text-align:left" + (fcli ? ";border-color:#0B1F5C;background:#E8ECF8" : ""), onclick: () => listPickOv("Scegli il cliente", clAll.map((c) => ({ v: c.name, l: c.name })), fcli, (v) => { S.repCli = v; S.repLim = 10; render(); }) }, "👤 " + (fcli || "Tutti i clienti")),
+      h("select", { style: "flex:1;margin:0", "aria-label": "Chi", onchange: (e) => { S.repWho = e.target.value; S.repLim = 10; render(); } }, h("option", { value: "" }, "👷 Tutti"), tm0.map((t) => h("option", { value: t.id, selected: fwho === t.id }, t.id === S.p.id ? "Io" : t.full_name)))),
+    rq ? h("div", { class: "muted", style: "margin:6px 0" }, (rq0 ? "Risultati della ricerca" : "Filtri attivi") + " in tutti i giorni. ", h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); S.repQ = ""; S.repCat = "all"; S.repCli = ""; S.repWho = ""; render(); } }, "Togli ricerca e filtri")) : null,
     rq ? null : h("div", { class: "row", style: "margin:14px 0 4px;gap:8px" },
       h("button", { class: "secondary", style: "flex:0 0 52px", "aria-label": "Giorno prima", onclick: () => shift(-1) }, "‹"),
       h("input", { type: "date", value: S.repDay, style: "flex:1;margin:0", onchange: (e) => { if (e.target.value) { S.repDay = e.target.value; render(); } } }),
@@ -822,7 +845,7 @@ async function backupView() {
 
 /* ---------- interventi urgenti ---------- */
 async function urgentView() {
-  const rows = chk(await sb.from("jobs").select("*, clients(name)").like("title", "🚨%").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
+  const rows = chk(await sb.from("jobs").select("*, clients(name)").like("title", "🚨%").neq("status", "void").order("start_at", { ascending: false, nullsFirst: false }).limit(100));
   const isBack = (j) => /↩️ DA TORNARE/.test(j.description || "");
   const note = (j) => ((j.description || "").match(/↩️ DA TORNARE:?\s*(.*)/) || [])[1] || "";
   const sorted = [...rows.filter(isBack), ...rows.filter((j) => !isBack(j))];
