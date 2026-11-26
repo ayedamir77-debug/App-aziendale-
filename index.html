@@ -77,6 +77,23 @@ button:disabled{opacity:.6}
 #rbar .ghost{color:#fff}
 #offl{position:fixed;top:0;left:0;right:0;background:#E08A00;color:#fff;text-align:center;font-size:13px;padding:4px;z-index:9;display:none}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+/* ---- versione PC (schermo largo): menu a sinistra, contenuto più largo ---- */
+@media (min-width:900px){
+ #app{max-width:1000px;margin:0 0 0 210px;padding:28px 40px 60px}
+ .nav{top:0;right:auto;bottom:0;width:210px;flex-direction:column;justify-content:flex-start;gap:6px;padding:18px 12px;border-top:0;border-right:1px solid #DDE2E6}
+ .nav button{flex:none;height:54px;font-size:15px;display:flex;align-items:center;gap:12px;padding:0 14px;text-align:left;min-width:0}
+ .nav button span{display:inline!important;font-size:22px!important;width:30px}
+ .grid{grid-template-columns:repeat(6,1fr)}
+ .sq{min-height:110px}
+ .cal button{height:56px}
+ #rbar{left:210px;bottom:0;max-width:1000px;margin:0 auto 0 210px}
+ .hero{padding:22px}
+ .hero .nm{font-size:22px;line-height:26px}
+ button.primary,button.secondary{max-width:420px}
+ h1{font-size:28px}
+}
+@media (min-width:1500px){ #app{margin:0 auto;padding-left:250px;max-width:1300px;box-sizing:border-box} }
+
 .sq{height:auto;min-height:96px;aspect-ratio:1/0.95;background:#fff;border:1px solid #DDE2E6;border-radius:14px;color:#14202B;font-size:13px;font-weight:600;line-height:1.2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 4px;text-align:center}
 .sq .ic{font-size:28px;line-height:30px}
 .sq:active{background:#E8ECF8}
