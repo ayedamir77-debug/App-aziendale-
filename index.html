@@ -1180,6 +1180,61 @@ async function jobCostCard(j, docs) {
     h("p", { class: "muted", style: "margin:8px 0 0" }, "Le fatture emesse si collegano al lavoro dalla scheda fattura."))];
 }
 
+/* ---------- riepilogo del lavoro (a oggi) ---------- */
+async function jobSummaryView(sub) {
+  const id = sub.id;
+  const [j, mats, docs, reps, te] = await Promise.all([
+    sb.from("jobs").select("*, clients(*), job_assignments(user_id)").eq("id", id).single().then(chk),
+    sb.from("job_materials").select("*").eq("job_id", id).then(chk),
+    sb.from("documents").select("*").eq("job_id", id).order("created_at", { ascending: false }).then(chk),
+    sb.from("reports").select("*").eq("job_id", id).order("day", { ascending: false }).then(chk),
+    sb.from("time_entries").select("user_id,started_at,ended_at").eq("job_id", id).then(chk).catch(() => [])
+  ]);
+  await loadTeam();
+  const own = OWNER(), D2 = (m) => dur(m * 60000), nm = (u) => (u === S.p.id ? S.p.full_name : nameOf(u)) || "?";
+  /* ore: dai rapportini (ognuno a chi è segnato), altrimenti dalle timbrature */
+  const per = {}; let tot = 0;
+  for (const r of reps) if (r.minutes != null) { tot += r.minutes; for (const u of ((r.with_ids && r.with_ids.length) ? r.with_ids : [r.user_id])) per[u] = (per[u] || 0) + r.minutes; }
+  let fonte = "rapportini";
+  if (!tot) { fonte = "timbrature"; for (const e of te) { const m = Math.round(((e.ended_at ? D(e.ended_at) : new Date()) - D(e.started_at)) / 60000); tot += m; per[e.user_id] = (per[e.user_id] || 0) + m; } }
+  const days = new Set(reps.filter((r) => r.minutes != null).map((r) => r.day)).size;
+  /* materiale: quello aggiunto a mano + quello dei rapportini */
+  const mm = {};
+  const addM = (desc, qty, unit) => { if (!desc) return; const k = desc.trim().toLowerCase() + "|" + (unit || "").trim().toLowerCase(), e = mm[k] = mm[k] || { desc: desc.trim(), unit: (unit || "").trim(), qty: 0, has: false }; if (qty != null && qty !== "") { e.qty += Number(qty); e.has = true; } };
+  for (const m of mats) addM(m.description, m.quantity, m.unit);
+  for (const r of reps) for (const m of (Array.isArray(r.materials) ? r.materials : [])) addM(m.desc, m.qty, m.unit);
+  const matList = Object.values(mm).sort((a, b) => a.desc.localeCompare(b.desc));
+  /* documenti */
+  const kinds = { foto: "📷 Foto", bolla: "🧾 Bolle", fattura: "📄 Fatture", scontrino: "🧾 Scontrini", altro: "📎 Altri documenti" };
+  const byKind = {}; for (const d of docs) (byKind[d.kind] = byKind[d.kind] || []).push(d);
+  const sumAmt = (a) => a.reduce((x, d) => x + (d.amount != null ? Number(d.amount) : 0), 0);
+  const sec = (t, ...c) => [h("h2", {}, t), h("div", { class: "card" }, ...c)];
+  const line = (l, v, b) => h("div", { class: "row", style: "padding:3px 0" }, h("span", { class: b ? "" : "muted" }, l), b ? h("strong", {}, v) : h("span", {}, v));
+  const ret = /↩️ DA TORNARE/.test(j.description || "") ? ((j.description || "").match(/↩️ DA TORNARE:?\s*(.*)/) || [])[1] : null;
+  const cost = own ? await jobCostCard(j, docs).catch(() => null) : null;
+  return [
+    h("h1", {}, "📊 Riepilogo"),
+    h("div", { class: "row" }, h("strong", {}, jobIcon(j.title) + " " + j.title), badge(j.status)),
+    h("p", { class: "muted", style: "margin:4px 0 12px" }, [j.clients ? j.clients.name : null, j.address, j.start_at ? "Dal " + fDate(j.start_at) : null].filter(Boolean).join(" · ") + " · aggiornato a oggi"),
+    ret != null ? h("div", { class: "note" }, "↩️ Da tornare" + (ret ? ": " + ret : "")) : null,
+    sec("⏱ Ore lavorate", line("Totale", D2(tot), true), tot ? line("Giorni di lavoro", String(days || "—")) : null,
+      Object.keys(per).length ? [h("div", { class: "muted", style: "margin-top:8px" }, "Chi le ha fatte"), Object.entries(per).sort((a, b) => b[1] - a[1]).map(([u, m]) => line(nm(u), D2(m)))] : h("div", { class: "muted" }, "Ancora nessuna ora registrata."),
+      tot ? h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, "Ore prese dai " + fonte + ".") : null),
+    sec("🧰 Materiale usato", matList.length ? matList.map((m) => line(m.desc, m.has ? (Math.round(m.qty * 100) / 100) + (m.unit ? " " + m.unit : "") : "—")) : h("div", { class: "muted" }, "Nessun materiale registrato.")),
+    sec("📎 Caricato finora",
+      docs.length ? Object.keys(kinds).filter((k) => byKind[k]).map((k) => line(kinds[k], byKind[k].length + (own && ["bolla", "fattura", "scontrino"].includes(k) && sumAmt(byKind[k]) ? " · " + money(sumAmt(byKind[k])) : ""))) : h("div", { class: "muted" }, "Nessun documento o foto."),
+      own && docs.some((d) => ["bolla", "fattura", "scontrino"].includes(d.kind) && d.amount != null) ? [h("div", { class: "muted", style: "margin-top:8px" }, "Dettaglio spese"), docs.filter((d) => ["bolla", "fattura", "scontrino"].includes(d.kind) && d.amount != null).map((d) => line((d.doc_date ? fDate(d.doc_date) + " · " : "") + (d.title || d.file_name || (kinds[d.kind] || "").replace(/^\S+ /, "")), money(d.amount)))] : null,
+      own && docs.some((d) => ["bolla", "fattura", "scontrino"].includes(d.kind) && d.amount != null) ? line("Totale spese documentate", money(sumAmt(docs.filter((d) => ["bolla", "fattura", "scontrino"].includes(d.kind)))), true) : null),
+    sec("📝 Rapportini (" + reps.length + ")", reps.length ? reps.slice(0, 8).map((r) => h("div", { style: "padding:6px 0;border-top:1px solid #EAEDEF" },
+      h("div", { class: "row" }, h("strong", {}, fDate(r.day) + " · " + nm(r.user_id)), h("span", { class: "muted" }, r.minutes != null ? D2(r.minutes) : "")),
+      r.summary ? h("div", { class: "muted", style: "white-space:pre-wrap" }, r.summary.length > 140 ? r.summary.slice(0, 140) + "…" : r.summary) : null)) : h("div", { class: "muted" }, "Nessun rapportino."),
+      reps.length > 8 ? h("div", { class: "muted", style: "margin-top:6px" }, "…e altri " + (reps.length - 8) + " nel lavoro.") : null),
+    j.field_notes ? sec("🗒 Note dal cantiere", h("div", { style: "white-space:pre-wrap" }, j.field_notes)) : null,
+    cost,
+    h("button", { class: "secondary", style: "width:100%;margin-top:14px", onclick: () => back() }, "Chiudi")
+  ];
+}
+
 /* ---------- firma cliente e rapporto PDF ---------- */
 async function signoffView(sub) {
   const j = chk(await sb.from("jobs").select("*, clients(*)").eq("id", sub.job).single()), mats = chk(await sb.from("job_materials").select("*").eq("job_id", j.id).order("created_at"));
@@ -1441,7 +1496,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = {
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  chat: chatView, backup: backupView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, urgent: urgentView, urgentForm, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, backup: backupView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, jobSummary: jobSummaryView, urgent: urgentView, urgentForm, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
@@ -1718,6 +1773,7 @@ async function jobView(id) {
       h("a", { class: "link", href: mapsUrl(j.address), target: "_blank", rel: "noopener" }, "🗺️ Indicazioni")) : null,
     j.description ? h("div", { class: "card" }, h("div", { class: "muted" }, "Descrizione"), h("div", { style: "white-space:pre-wrap;margin-top:2px" }, j.description)) : null,
     OWNER() && names.length ? h("p", {}, "👷 Assegnato a: " + names.join(", ")) : null,
+    h("button", { class: "primary", style: "width:100%;margin:8px 0", onclick: () => go({ t: "jobSummary", id: j.id }) }, "📊 Riepilogo del lavoro"),
 
     h("h2", {}, "Avanzamento"),
     h("div", { class: "card" },
