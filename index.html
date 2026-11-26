@@ -486,10 +486,12 @@ function compareMats(rm, jm) {
   };
   return rm.map((m) => ({ m, hit: find(m.desc) }));
 }
-async function repList(jobIds, empty) {
+async function repList(jobIds, empty, opt) {
+  opt = opt || {};
   if (!jobIds.length) return h("p", { class: "muted" }, empty);
   await loadTeam();
-  const l = chk(await sb.from("reports").select("*, jobs(title)").in("job_id", jobIds).order("day", { ascending: false }).limit(30));
+  let qq = sb.from("reports").select("*, jobs(title)").in("job_id", jobIds).order("day", { ascending: false }); if (opt.day) qq = qq.eq("day", opt.day);
+  const l = chk(await qq.limit(opt.limit || 30));
   if (!l.length) return h("p", { class: "muted" }, empty);
   return l.map((r) => h("div", { class: "card" },
     h("div", { class: "row" }, h("strong", {}, dayLabel(r.day)), h("span", { class: "muted" }, who(r.user_id))),
@@ -2054,6 +2056,9 @@ async function clientView(id) {
   const c = chk(await sb.from("clients").select("*").eq("id", id).single());
   const jobs = chk(await sb.from("jobs").select("*, clients(name), job_assignments(user_id)").eq("client_id", id).order("start_at", { ascending: false }));
   await loadTeam();
+  const dayF = S.cliDayFor === id ? (S.cliDay || "") : ((S.cliDay = ""), (S.cliDayFor = id), (S.cliLim = 3), "");
+  const lim = S.cliLim || 3;
+  const shownJobs = dayF ? jobs.filter((j) => j.start_at && isoDay(new Date(j.start_at)) === dayF) : jobs.slice(0, lim);
   let sum = null;
   if (jobs.length) {
     try {
@@ -2083,8 +2088,11 @@ async function clientView(id) {
       sum.per.length ? [h("div", { class: "muted", style: "margin-top:8px" }, "Per persona"), sum.per.map(([u, m]) => h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, who(u)), h("span", {}, dur(m * 60000))))] : null,
       sum.mats.length ? [h("div", { class: "muted", style: "margin-top:12px" }, "Materiale usato (totale)"), sum.mats.map((m) => h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, m.desc), h("span", { class: "muted" }, m.hasQty ? (Math.round(m.qty * 100) / 100) + (m.unit ? " " + m.unit : "") : "—")))] : h("div", { class: "muted", style: "margin-top:12px" }, "Nessun materiale nei rapportini."))] : null,
     h("h2", {}, "Lavori di questo cliente"),
-    jobs.length ? jobs.map(jobCard) : h("p", {}, "Nessun lavoro."),
-    h("h2", {}, "Rapportini dei suoi lavori"), await repList(jobs.map((x) => x.id), "Nessun rapportino."),
+    jobs.length > 3 ? h("div", { class: "row", style: "gap:8px;margin-bottom:8px" }, h("input", { type: "date", value: dayF, style: "flex:1;margin:0", "aria-label": "Data", onchange: (e) => { S.cliDay = e.target.value; S.cliLim = 3; render(); } }),
+      dayF ? h("button", { class: "secondary", style: "flex:0 0 auto;padding:0 14px", onclick: () => { S.cliDay = ""; render(); } }, "Tutte le date") : null) : null,
+    shownJobs.length ? shownJobs.map(jobCard) : h("p", { class: "muted" }, dayF ? "Nessun lavoro in quella data." : "Nessun lavoro."),
+    !dayF && jobs.length > lim ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.cliLim = lim + 5; render(); } }, "Mostra altri (" + (jobs.length - lim) + ")") : null,
+    h("h2", {}, "Rapportini" + (dayF ? " del " + fDay(dayF) : " dei suoi lavori")), await repList(jobs.map((x) => x.id), dayF ? "Nessun rapportino in quella data." : "Nessun rapportino.", { day: dayF || null, limit: dayF ? 30 : 3 }),
     [h("button", { class: "secondary", style: "width:100%;margin-top:16px", onclick: () => go({ t: "clientForm", id }) }, "Modifica cliente"),
       OWNER() ? h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare il cliente? I suoi lavori restano, senza cliente.")) return; if (await attempt(async () => { chk(await sb.from("clients").delete().eq("id", id)); })) back(); } }, "Elimina cliente") : null]
   ];
