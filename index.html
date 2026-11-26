@@ -2597,8 +2597,8 @@ async function docsView() {
       h("input", { type: "date", "aria-label": "Al", value: S.docTo || "", onchange: (e) => { S.docTo = e.target.value; render(); } })),
     S.docFrom || S.docTo ? h("button", { class: "ghost", style: "margin:-4px 0 10px", onclick: () => { S.docFrom = ""; S.docTo = ""; render(); } }, "✕ Togli il filtro data") : null,
     years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
-    browse && tools ? h("details", { style: "margin-bottom:12px" }, h("summary", { class: "muted", style: "padding:6px 0" }, "⬇️ Esporta archivio (Excel / ZIP)"), tools) : tools,
-    browse ? (names.length ? browseView : h("p", {}, "Nessun documento.")) : (list.length ? groups : h("p", {}, "Nessun documento trovato."))
+    browse ? null : tools,
+    browse ? [names.length ? browseView : h("p", {}, "Nessun documento."), tools ? h("details", { style: "margin-top:16px" }, h("summary", { class: "muted", style: "padding:8px 0" }, "⬇️ Esporta archivio (Excel / ZIP)"), tools) : null] : (list.length ? groups : h("p", {}, "Nessun documento trovato."))
   ];
 }
 async function docEditForm(id) {
