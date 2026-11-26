@@ -2028,17 +2028,26 @@ async function calView() {
 }
 
 /* ---------- clienti (datore) ---------- */
+const CLCATS = { privato: "👤 Privati", azienda: "🏢 Aziende", comune: "🏛️ Comuni ed enti", condominio: "🏘️ Condomini", altro: "📁 Altro" };
 async function clientsView() {
   const data = chk(await sb.from("clients").select("*").order("name"));
   const q = S.draft.clientQ || "";
-  const list = data.filter((c) => (c.name + " " + (c.address || "") + " " + (c.phone || "")).toLowerCase().includes(q.toLowerCase()));
+  const list0 = data.filter((c) => (c.name + " " + (c.address || "") + " " + (c.phone || "")).toLowerCase().includes(q.toLowerCase()));
+  const cat = S.draft.clientCat || "all";
+  const list = cat === "all" ? list0 : list0.filter((c) => (c.category || "none") === cat);
+  const cnt = (k) => list0.filter((c) => (c.category || "none") === k).length;
+  const chip = (k, l) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { S.draft.clientCat = k; render(); } }, l);
+  const card = (c) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "client", id: c.id }) },
+    h("div", { class: "title", style: "margin-top:0" }, c.name), c.phone ? h("div", { class: "muted" }, c.phone) : null, c.address ? addrLink(c.address) : null);
+  const keys = [...Object.keys(CLCATS), "none"];
   return [
     h("h1", {}, "Clienti"),
     h("input", { id: "cq", placeholder: "Cerca cliente…", value: q, oninput: (e) => { S.draft.clientQ = e.target.value; } , onkeydown: (e) => { if (e.key === "Enter") render(); } }),
     h("button", { class: "secondary", style: "width:100%;margin:8px 0 12px", onclick: () => { S.draft.clientQ = $("cq").value; render(); } }, "Cerca"),
     h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "clientForm" }) }, "+ Nuovo cliente"),
-    list.length ? list.map((c) => h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "client", id: c.id }) },
-      h("div", { class: "title", style: "margin-top:0" }, c.name), c.phone ? h("div", { class: "muted" }, c.phone) : null, c.address ? addrLink(c.address) : null)) : h("p", {}, "Nessun cliente.")
+    h("div", { class: "chips", style: "margin-bottom:8px" }, chip("all", "Tutti (" + list0.length + ")"), Object.entries(CLCATS).map(([k, l]) => cnt(k) ? chip(k, l + " (" + cnt(k) + ")") : null), cnt("none") ? chip("none", "Da classificare (" + cnt("none") + ")") : null),
+    !list.length ? h("p", {}, "Nessun cliente.") : cat !== "all" ? list.map(card)
+      : keys.map((k) => { const l = list.filter((c) => (c.category || "none") === k); return l.length ? [h("h2", {}, (CLCATS[k] || "❔ Da classificare") + " (" + l.length + ")"), l.map(card)] : null; })
   ];
 }
 async function clientView(id) {
@@ -2062,6 +2071,7 @@ async function clientView(id) {
   }
   return [
     h("h1", {}, c.name),
+    c.category && CLCATS[c.category] ? h("div", { class: "muted", style: "margin:-6px 0 8px" }, CLCATS[c.category]) : null,
     h("div", { class: "card" },
       c.phone ? h("div", {}, h("a", { class: "link", href: telUrl(c.phone) }, "📞 " + c.phone)) : null,
       c.email ? h("div", {}, h("a", { class: "link", href: "mailto:" + c.email }, "✉️ " + c.email)) : null,
@@ -2084,6 +2094,8 @@ async function clientForm(id) {
   return [
     h("h1", {}, id ? "Modifica cliente" : "Nuovo cliente"),
     h("label", { for: "cn" }, "Nome o ragione sociale"), h("input", { id: "cn", value: c.name || "" }),
+    h("label", { for: "cc" }, "Tipo di cliente"),
+    h("select", { id: "cc" }, h("option", { value: "" }, "— scegli —"), Object.entries(CLCATS).map(([k, l]) => h("option", { value: k, selected: c.category === k }, l))),
     h("label", { for: "cp" }, "Telefono"), h("input", { id: "cp", type: "tel", value: c.phone || "" }),
     h("label", { for: "ce" }, "Email"), h("input", { id: "ce", type: "email", value: c.email || "" }),
     h("label", { for: "ca" }, "Indirizzo"), h("input", { id: "ca", value: c.address || "" }),
@@ -2093,7 +2105,10 @@ async function clientForm(id) {
       const ok = await attempt(async () => {
         const name = $("cn").value.trim(); if (!name) throw new Error("Inserisci il nome");
         const p = { name, phone: $("cp").value.trim() || null, email: $("ce").value.trim() || null, address: $("ca").value.trim() || null, notes: $("cno").value.trim() || null };
-        if (id) chk(await sb.from("clients").update(p).eq("id", id)); else chk(await sb.from("clients").insert({ ...p, company_id: S.p.company_id }));
+        const save = async (pp) => { if (id) chk(await sb.from("clients").update(pp).eq("id", id)); else chk(await sb.from("clients").insert({ ...pp, company_id: S.p.company_id })); };
+        const cv = $("cc").value || null;
+        try { await save({ ...p, category: cv }); }
+        catch (er) { if (/category/i.test(String(er.message || er))) { await save(p); if (cv) alert("Cliente salvato, ma il tipo non è stato memorizzato: manca il codice su Supabase (colonna «category»)."); } else throw er; }
       });
       if (ok) back(); else e.target.disabled = false;
     } }, "Salva cliente")
