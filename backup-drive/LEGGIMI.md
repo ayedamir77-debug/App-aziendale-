@@ -16,3 +16,8 @@ SUPABASE_URL, SUPABASE_SERVICE_KEY, SUPABASE_DB_URL, GOOGLE_CLIENT_ID, GOOGLE_CL
 
 ## Ripristino
 Un nuovo progetto Supabase: importare `db-public-*.sql.gz` (gunzip, poi psql), rimettere i file di `files/` nel bucket `docs` (il nome usa `__` al posto di `/`).
+
+## Secondo e terzo account Google (facoltativi)
+Aggiungere i segreti `GOOGLE_REFRESH_TOKEN_2` e `DRIVE_FOLDER_ID_2` (e per il terzo `_3`). Se presenti, il backup viene caricato anche lì.
+Client ID/secret possono essere gli stessi; per usarne di diversi aggiungere `GOOGLE_CLIENT_ID_2` e `GOOGLE_CLIENT_SECRET_2`.
+Il workflow li legge: vedi `.github/workflows/backup.yml`.

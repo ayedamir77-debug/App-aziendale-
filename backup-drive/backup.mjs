@@ -7,11 +7,16 @@ const SB = { apikey: KEY, Authorization: "Bearer " + KEY };
 const TABLES = ["companies", "profiles", "clients", "jobs", "job_assignments", "job_checklists", "job_materials", "reports", "time_entries", "leave_requests", "assets", "warranties", "documents", "invoices", "quotes", "expenses", "vehicles", "vehicle_deadlines", "km_log", "stock", "library", "checklists", "posts", "comments", "chat_messages", "push_subs", "push_config"];
 const KEEP = 30, BUCKET = "docs", day = new Date().toISOString().slice(0, 10);
 
-/* ---- Google Drive ---- */
-const tk = await (await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
-  body: new URLSearchParams({ client_id: env("GOOGLE_CLIENT_ID"), client_secret: env("GOOGLE_CLIENT_SECRET"), refresh_token: env("GOOGLE_REFRESH_TOKEN"), grant_type: "refresh_token" }) })).json();
-if (!tk.access_token) throw new Error("Accesso a Google non riuscito: " + JSON.stringify(tk));
-const G = { Authorization: "Bearer " + tk.access_token }, ROOT = env("DRIVE_FOLDER_ID");
+/* ---- Google Drive (uno o più account: principale, _2, _3) ---- */
+const DESTS = [""]; for (const n of ["_2", "_3"]) if (process.env["GOOGLE_REFRESH_TOKEN" + n] && process.env["DRIVE_FOLDER_ID" + n]) DESTS.push(n);
+let G, ROOT; const fcache = new Map();
+async function login(n) {
+  const e = (k) => process.env[k + n] || (n ? env(k) : env(k)); // il secondo/terzo account può riusare client id/secret del primo
+  const tk = await (await fetch("https://oauth2.googleapis.com/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ client_id: e("GOOGLE_CLIENT_ID"), client_secret: e("GOOGLE_CLIENT_SECRET"), refresh_token: env("GOOGLE_REFRESH_TOKEN" + n), grant_type: "refresh_token" }) })).json();
+  if (!tk.access_token) throw new Error("Accesso a Google non riuscito (account " + (n || "principale") + "): " + JSON.stringify(tk));
+  G = { Authorization: "Bearer " + tk.access_token }; ROOT = env("DRIVE_FOLDER_ID" + n); fcache.clear();
+}
 const esc = (s) => s.replace(/\\/g, "\\\\").replace(/'/g, "\\'");
 async function gList(q, extra = "") {
   const out = []; let page = "";
@@ -52,10 +57,11 @@ const out = { app: "Light Project", creato: new Date().toISOString(), tabelle: {
 for (const t of TABLES) { const d = await dump(t); if (d) out.tabelle[t] = d; }
 const righe = Object.values(out.tabelle).reduce((a, x) => a + x.length, 0);
 if (!righe) throw new Error("Backup vuoto: controlla SUPABASE_URL e SUPABASE_SERVICE_KEY");
-await gUpload(`backup-light-project-${day}.json.gz`, gzipSync(Buffer.from(JSON.stringify(out))), ROOT, "application/gzip");
+const jsonGz = gzipSync(Buffer.from(JSON.stringify(out)));
 console.log("Dati: tabelle", Object.keys(out.tabelle).length, "righe", righe);
-await prune("backup-light-project-", ROOT);
 
+async function toDrive() {
+await gUpload(`backup-light-project-${day}.json.gz`, jsonGz, ROOT, "application/gzip"); await prune("backup-light-project-", ROOT);
 /* ---- 2. database completo (struttura, regole, funzioni, utenti) ---- */
 for (const [file, nome] of [["/tmp/db-public.sql.gz", "db-public"], ["/tmp/db-sistema.sql.gz", "db-sistema-utenti"]]) {
   if (existsSync(file)) { await gUpload(`${nome}-${day}.sql.gz`, readFileSync(file), ROOT, "application/gzip"); console.log("Caricato", nome); await prune(nome + "-", ROOT); }
@@ -66,7 +72,6 @@ for (const [file, nome] of [["/tmp/db-public.sql.gz", "db-public"], ["/tmp/db-si
 const T = out.tabelle, byId = (a) => Object.fromEntries((a || []).map((x) => [x.id, x]));
 const clientsM = byId(T.clients), jobsM = byId(T.jobs), profM = byId(T.profiles), docsAll = T.documents || [], libAll = T.library || [];
 const safe = (x, fb = "Senza nome") => (String(x || "").replace(/[\\/:*?"<>|\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 80)) || fb;
-const fcache = new Map();
 async function path(parent, ...names) {
   let cur = parent;
   for (const n of names) { const k = cur + "/" + n; if (!fcache.has(k)) fcache.set(k, await gFolder(n, cur)); cur = fcache.get(k); }
@@ -151,3 +156,6 @@ for (const p of objs) {
 }
 console.log(`File: ${docsAll.length} documenti (${nuovi} nuovi), ${altri} altri file nuovi, ${errori} errori`);
 if (errori) process.exitCode = 1;
+
+}
+for (const n of DESTS) { console.log("=== Destinazione Drive:", n || "account principale"); await login(n); await toDrive(); }
