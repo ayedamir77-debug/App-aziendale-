@@ -1828,7 +1828,7 @@ async function jobView(id) {
   if (photos.length) { const r = await sb.storage.from("docs").createSignedUrls(photos.map((d) => d.file_path), 3600); (r.data || []).forEach((x) => { if (x.signedUrl) urls[x.path] = x.signedUrl; }); }
   const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
   const reps = await repList([j.id], "Nessun rapportino su questo lavoro.").catch(() => null);
-  const ck = await jobChecklists(j).catch(() => null), cost = OWNER() ? await jobCostCard(j, docs).catch(() => null) : null;
+  const cost = OWNER() ? await jobCostCard(j, docs).catch(() => null) : null;
   return [
     h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, jobIcon(j.title) + " " + j.title), badge(j.status)),
     j.start_at ? h("p", { class: "when" }, "🕒 " + fDT(j.start_at) + (j.end_at ? " → " + fTime(j.end_at) : "")) : null,
@@ -1867,7 +1867,6 @@ async function jobView(id) {
         const q = $("mq").value; chk(await sb.from("job_materials").insert({ job_id: j.id, company_id: j.company_id, description, quantity: q === "" ? null : Number(q), unit: $("mu").value.trim() || null, added_by: S.p.id }));
       }) }, "Aggiungi")),
 
-    ck,
     h("h2", {}, "Foto del lavoro"),
     photoSection(j, photos, urls),
     h("h2", {}, "Documenti"),
@@ -1919,14 +1918,6 @@ async function jobForm(id) {
         let jobId = id;
         if (id) chk(await sb.from("jobs").update(payload).eq("id", id));
         else { const r = chk(await sb.from("jobs").insert({ ...payload, company_id: S.p.company_id, created_by: S.p.id, status: "todo" }).select().single()); jobId = r.id; }
-        const pts = descPoints($("jd").value);
-        const ex = id ? chk(await sb.from("job_checklists").select("*").eq("job_id", jobId).eq("name", "Da fare")) : [];
-        if (pts.length) {
-          const old = ex.length && Array.isArray(ex[0].items) ? ex[0].items : [];
-          const add = pts.map((t) => ({ t, d: !!old.find((o) => o.t === t && o.d) }));
-          if (ex.length) chk(await sb.from("job_checklists").update({ items: add }).eq("id", ex[0].id));
-          else chk(await sb.from("job_checklists").insert({ company_id: S.p.company_id, job_id: jobId, name: "Da fare", items: add }));
-        } else if (ex.length) chk(await sb.from("job_checklists").delete().eq("id", ex[0].id));
         const ids = [...document.querySelectorAll(".as")].filter((c) => c.checked).map((c) => c.value);
         chk(await sb.from("job_assignments").delete().eq("job_id", jobId));
         if (ids.length) chk(await sb.from("job_assignments").insert(ids.map((u) => ({ job_id: jobId, user_id: u }))));
