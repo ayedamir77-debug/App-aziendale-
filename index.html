@@ -2542,6 +2542,28 @@ async function docsView() {
       h("summary", { style: "font-weight:700;font-size:17px;padding:8px 0" }, (/^Senza/.test(cn) ? "📂 " : "👤 ") + cn + " (" + n + ")"),
       Object.keys(jobs).sort((a, b) => a.localeCompare(b)).map((jt) => jobBox(jt, jobs[jt])));
   });
+  const browse = !term && !S.docFix && !S.docFrom && !S.docTo && S.docKind === "all";
+  const lastOf = (ds) => ds.reduce((m, d) => (dayOf(d) > m ? dayOf(d) : m), "");
+  const names = Object.keys(byCl).sort((a, b) => (/^Senza/.test(a) - /^Senza/.test(b)) || a.localeCompare(b));
+  if (S.docCl && !byCl[S.docCl]) { S.docCl = null; S.docJob = null; }
+  if (S.docCl && S.docJob && !(byCl[S.docCl] || {})[S.docJob]) S.docJob = null;
+  const folder = (icon, title, n, last, fn) => h("button", { class: "card", style: "display:flex;align-items:center;gap:12px;width:100%;text-align:left;padding:14px 16px;margin:0 0 10px;cursor:pointer", onclick: fn },
+    h("span", { style: "font-size:26px" }, icon), h("span", { style: "flex:1;min-width:0" }, h("strong", { style: "display:block;font-size:17px;overflow:hidden;text-overflow:ellipsis" }, title), h("span", { class: "muted", style: "font-size:13px" }, n + (n === 1 ? " documento" : " documenti") + (last ? " · ultimo " + fDay(last) : ""))), h("span", { class: "muted", style: "font-size:22px" }, "›"));
+  const crumb = (t, fn) => h("button", { class: "ghost", style: "margin:0 0 10px;padding:0;height:auto;justify-content:flex-start", onclick: fn }, "← " + t);
+  let browseView = null;
+  if (browse) {
+    if (!S.docCl) {
+      browseView = [nFix ? folder("⚠️", "Da sistemare", nFix, "", () => { S.docFix = true; render(); }) : null, names.map((cn) => { const ds = Object.values(byCl[cn]).flat(); return folder(/^Senza/.test(cn) ? "📂" : "👤", cn, ds.length, lastOf(ds), () => { S.docCl = cn; S.docJob = null; S.docLim = 10; render(); }); })];
+    } else if (!S.docJob) {
+      const jobs = byCl[S.docCl];
+      browseView = [crumb("Tutti i clienti", () => { S.docCl = null; render(); }), h("h2", { style: "margin:0 0 10px" }, S.docCl),
+        Object.keys(jobs).sort((a, b) => lastOf(jobs[b]).localeCompare(lastOf(jobs[a]))).map((jt) => folder("🔧", jt, jobs[jt].length, lastOf(jobs[jt]), () => { S.docJob = jt; S.docLim = 10; render(); }))];
+    } else {
+      const ds = byCl[S.docCl][S.docJob], lim = S.docLim || 10;
+      browseView = [crumb(S.docCl, () => { S.docJob = null; render(); }), h("h2", { style: "margin:0 0 10px" }, "🔧 " + S.docJob), ds.slice(0, lim).map((d) => docItem(d, false)),
+        ds.length > lim ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.docLim = lim + 10; render(); } }, "Mostra altri (" + (ds.length - lim) + ")") : null];
+    }
+  }
   const status = h("p", { class: "muted" });
   const search = h("input", { type: "search", id: "dq", placeholder: "Cerca: nome, cliente, numero, testo…", value: S.dq || "", enterkeyhint: "search", onkeydown: (e) => { if (e.key === "Enter") { S.dq = e.target.value; render(); } }, onchange: (e) => { S.dq = e.target.value; render(); } });
   const tools = OWNER() ? h("div", { class: "card" },
@@ -2575,8 +2597,8 @@ async function docsView() {
       h("input", { type: "date", "aria-label": "Al", value: S.docTo || "", onchange: (e) => { S.docTo = e.target.value; render(); } })),
     S.docFrom || S.docTo ? h("button", { class: "ghost", style: "margin:-4px 0 10px", onclick: () => { S.docFrom = ""; S.docTo = ""; render(); } }, "✕ Togli il filtro data") : null,
     years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
-    tools,
-    list.length ? groups : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento.")
+    browse && tools ? h("details", { style: "margin-bottom:12px" }, h("summary", { class: "muted", style: "padding:6px 0" }, "⬇️ Esporta archivio (Excel / ZIP)"), tools) : tools,
+    browse ? (names.length ? browseView : h("p", {}, "Nessun documento.")) : (list.length ? groups : h("p", {}, "Nessun documento trovato."))
   ];
 }
 async function docEditForm(id) {
