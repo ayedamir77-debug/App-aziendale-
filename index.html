@@ -629,7 +629,7 @@ async function reportForm(sub) {
     h("label", {}, "Ore di lavoro (facoltativo)"),
     h("div", { class: "sp" }, h("div", {}, h("div", { class: "muted" }, "Dalle"), h("input", { id: "r_from", type: "time", onchange: calcMan })), h("div", {}, h("div", { class: "muted" }, "Alle"), h("input", { id: "r_to", type: "time", onchange: calcMan }))),
     h("div", { class: "muted", style: "margin-top:8px" }, "Pausa (minuti)"), h("input", { id: "r_brk", type: "number", inputmode: "numeric", placeholder: "0", oninput: calcMan }), manBox,
-    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), h("select", { id: "r_job", onchange: () => { stash(); loadBolle().catch(() => {}); if ($("r_back") && !backTouched) $("r_back").value = markOf($("r_job").value); } }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: pre.job_id === j.id }, (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title)))),
+    h("div", { id: "jobBox" }, h("label", { for: "r_job" }, "Lavoro"), jobPick("r_job", jobs, pre.job_id, () => { stash(); loadBolle().catch(() => {}); if ($("r_back") && !backTouched) $("r_back").value = markOf($("r_job").value); })),
     h("label", { for: "r_sum" }, "Cosa è stato fatto"), h("textarea", { id: "r_sum", rows: "7", placeholder: "Scrivi, oppure premi 🎤 e racconta a voce com'è andata…", oninput: stash }, pre.summary || ""),
     (() => {
       const m = micButton({ get value() { return $("r_sum").value; }, set value(v) { $("r_sum").value = v; } }, stash);
@@ -2443,9 +2443,36 @@ function buildPdf(pages) {
   return new Blob(parts, { type: "application/pdf" });
 }
 
+/* scelta del lavoro: pagina interna (sopra il modulo) con clienti > lavori, poi si torna dove eri */
+function jobPick(id, jobs, cur, onChange) {
+  const lab = (j) => (j.clients && j.clients.name ? j.clients.name + " — " : "") + j.title;
+  const hid = h("input", { type: "hidden", id, value: cur || "" });
+  const btn = h("button", { type: "button", class: "secondary", style: "width:100%;text-align:left;justify-content:flex-start" });
+  const show = () => { const j = jobs.find((x) => x.id === hid.value); btn.textContent = j ? "🔧 " + lab(j) : "— nessuno — (tocca per scegliere)"; };
+  const pick = (v) => { hid.value = v || ""; show(); if (onChange) onChange(); };
+  btn.onclick = () => {
+    const ov = h("div", { style: "position:fixed;inset:0;z-index:60;background:#F5F7F9;overflow:auto;padding:16px 16px 40px" });
+    const close = () => { ov.remove(); };
+    const list = h("div"), q = h("input", { type: "search", placeholder: "Cerca cliente o lavoro…", style: "margin:10px 0" });
+    const draw = () => {
+      const t = q.value.trim().toLowerCase(), by = {};
+      for (const j of jobs) { if (t && !lab(j).toLowerCase().includes(t)) continue; const cn = (j.clients && j.clients.name) || "Senza cliente"; (by[cn] = by[cn] || []).push(j); }
+      const names = Object.keys(by).sort((a, b) => (a === "Senza cliente") - (b === "Senza cliente") || a.localeCompare(b));
+      list.replaceChildren(h("button", { type: "button", class: "secondary", style: "width:100%;margin-bottom:10px", onclick: () => { pick(""); close(); } }, "— nessun lavoro —"),
+        ...(names.length ? names.map((cn) => h("details", { class: "card", open: (t || names.length === 1 || by[cn].some((j) => j.id === hid.value)) ? true : undefined, style: "padding:6px 14px" },
+          h("summary", { style: "font-weight:700;padding:8px 0" }, (cn === "Senza cliente" ? "📂 " : "👤 ") + cn + " (" + by[cn].length + ")"),
+          by[cn].map((j) => h("button", { type: "button", class: "secondary", style: "width:100%;text-align:left;margin:4px 0;" + (j.id === hid.value ? "border-color:#0B1F5C;background:#E8ECF8" : ""), onclick: () => { pick(j.id); close(); } }, (j.title.startsWith("🚨") ? "" : "🔧 ") + j.title)))) : [h("p", { class: "muted" }, "Nessun lavoro trovato.")]));
+    };
+    q.oninput = draw; draw();
+    ov.append(h("div", { class: "row" }, h("h1", { style: "margin:0" }, "Scegli il lavoro"), h("button", { type: "button", class: "ghost", onclick: close }, "Chiudi")), q, list);
+    document.body.append(ov);
+  };
+  show();
+  return h("div", {}, hid, btn);
+}
 async function docForm(jobId) {
   const [jobs, clients] = await Promise.all([
-    sb.from("jobs").select("id,title,start_at").order("start_at", { ascending: false, nullsFirst: false }).limit(100).then(chk),
+    sb.from("jobs").select("id,title,start_at,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(300).then(chk),
     sb.from("clients").select("id,name").order("name").then(chk)
   ]);
   const pages = []; let filt = "doc", analyzed = false, ocrText = "", rate = null, issued = false, items = [];
@@ -2577,7 +2604,7 @@ async function docForm(jobId) {
     h("label", { for: "dd" }, "Data del documento"), h("input", { id: "dd", type: "date", value: isoDay(new Date()), onchange: upName }),
     h("label", { for: "da" }, "Importo totale in € (facoltativo)"), h("input", { id: "da", type: "number", inputmode: "decimal", step: "0.01", oninput: upName }),
     h("label", { for: "dj" }, "Lavoro collegato"),
-    h("select", { id: "dj", onchange: upName }, h("option", { value: "" }, "— nessuno —"), jobs.map((j) => h("option", { value: j.id, selected: j.id === jobId }, j.title))),
+    jobPick("dj", jobs, jobId, upName),
     itemsBox,
     nameBox,
     OWNER() ? h("div", { class: "card" },
