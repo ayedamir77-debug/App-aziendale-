@@ -2319,7 +2319,7 @@ async function downloadDoc(d) {
   location.href = data.signedUrl;
 }
 async function docView(sub) {
-  const d = sub.d, host = h("div", { style: "margin-top:12px" }, h("p", { class: "muted" }, "Apro il file…"));
+  const d = sub.d, host = h("div", { style: "margin-top:12px;min-width:0;max-width:100%;overflow:hidden" }, h("p", { class: "muted" }, "Apro il file…"));
   setTimeout(async () => {
     try {
       const { data, error } = await sb.storage.from("docs").createSignedUrl(d.file_path, 600);
@@ -2334,7 +2334,7 @@ async function docView(sub) {
       const W = Math.min(window.innerWidth - 32, 900) * (window.devicePixelRatio > 1 ? 1.6 : 1.2);
       for (let i = 1; i <= pdf.numPages; i++) {
         const pg = await pdf.getPage(i), v0 = pg.getViewport({ scale: 1 }), v = pg.getViewport({ scale: W / v0.width });
-        const cv = document.createElement("canvas"); cv.width = v.width; cv.height = v.height; cv.style.cssText = "width:100%;height:auto;border:1px solid #DDE2E6;border-radius:8px;margin-bottom:10px;background:#fff";
+        const cv = document.createElement("canvas"); cv.width = v.width; cv.height = v.height; cv.style.cssText = "width:100%;max-width:100%;height:auto;display:block;border:1px solid #DDE2E6;border-radius:8px;margin-bottom:10px;background:#fff";
         host.append(cv); await pg.render({ canvasContext: cv.getContext("2d"), viewport: v }).promise;
       }
     } catch (e) { host.replaceChildren(h("p", { class: "note" }, e.message || "Impossibile aprire il file.")); }
@@ -2400,7 +2400,7 @@ async function readDocument(src, say) {
     const n = src.pages.length, idx = [...new Set([0, Math.min(1, n - 1), n - 1])]; let text = "";
     for (let k = 0; k < idx.length; k++) {
       say("Leggo la pagina " + (k + 1) + " di " + idx.length + "…");
-      const p = src.pages[idx[k]], cv = await renderPage(p.bmp, p.rot, "doc", 2200);
+      const p = src.pages[idx[k]], cv = await renderPage(p.bmp, p.rot, "doc", 2200, p.quad);
       text += (await ocrCanvas(cv, say)) + "\n";
     }
     return text;
@@ -2489,7 +2489,8 @@ async function docsView() {
   const all = chk(await q);
   const years = [...new Set(all.map(docYear).filter(Boolean))].sort().reverse();
   if (S.docYear !== "all" && !years.includes(S.docYear)) S.docYear = "all";
-  const list = all.filter((d) => (S.docKind === "all" || d.kind === S.docKind) && (S.docYear === "all" || docYear(d) === S.docYear));
+  const isPdfD = (d) => /pdf$/i.test(d.file_path || d.file_name || "") || /pdf/i.test(d.mime || "");
+  const list = all.filter((d) => (S.docKind === "all" || (S.docKind === "pdf" ? isPdfD(d) : d.kind === S.docKind)) && (S.docYear === "all" || docYear(d) === S.docYear));
   const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; S.docLim = 10; render(); } }, l);
   const unpaid = all.filter((d) => d.kind === "fattura" && !d.paid && d.amount != null).reduce((s, d) => s + Number(d.amount), 0);
   let used = null;
@@ -2534,7 +2535,7 @@ async function docsView() {
     OWNER() && unpaid > 0 ? h("div", { class: "note", style: "margin:0 0 12px" }, "Fatture da pagare: " + money(unpaid)) : null,
     h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "docForm" }) }, "+ Scansiona o carica documento"),
     search,
-    h("div", { class: "chips", style: "margin-top:12px" }, chip("all", "Tutti"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
+    h("div", { class: "chips", style: "margin-top:12px" }, chip("all", "Tutti"), chip("pdf", "📄 PDF scansionati (" + all.filter(isPdfD).length + ")"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
     years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
     tools,
     list.length ? groups : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento.")
@@ -2623,13 +2624,105 @@ function enhance(c, filt) {
   enhancePixels(img.data, W, H, bg.getImageData(0, 0, W, H).data, filt);
   g.putImageData(img, 0, 0);
 }
-async function renderPage(bmp, rot, filt, maxSide) {
-  const r = Math.min(1, maxSide / Math.max(bmp.width, bmp.height));
-  const w = Math.round(bmp.width * r), hh = Math.round(bmp.height * r), swap = rot % 180 !== 0;
+/* --- riconoscimento del foglio + raddrizzamento (come lo scanner del telefono) --- */
+function detectDoc(bmp) {
+  const r = 300 / Math.max(bmp.width, bmp.height), w = Math.max(40, Math.round(bmp.width * r)), hh = Math.max(40, Math.round(bmp.height * r));
+  const c = document.createElement("canvas"); c.width = w; c.height = hh;
+  const g = c.getContext("2d", { willReadFrequently: true }); g.filter = "blur(2px)"; g.drawImage(bmp, 0, 0, w, hh); g.filter = "none";
+  const d = g.getImageData(0, 0, w, hh).data, n = w * hh, L = new Uint8Array(n), hist = new Uint32Array(256);
+  for (let i = 0, p = 0; p < n; i += 4, p++) { const v = (0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]) | 0; L[p] = v; hist[v]++; }
+  let sum = 0; for (let k = 0; k < 256; k++) sum += k * hist[k];
+  let wB = 0, sB = 0, best = 0, T = 128;
+  for (let k = 0; k < 256; k++) { wB += hist[k]; if (!wB) continue; const wF = n - wB; if (!wF) break; sB += k * hist[k]; const mB = sB / wB, mF = (sum - sB) / wF, v = wB * wF * (mB - mF) * (mB - mF); if (v > best) { best = v; T = k; } }
+  const seen = new Uint8Array(n); let bestC = null;
+  for (let s0 = 0; s0 < n; s0++) {
+    if (seen[s0] || L[s0] <= T) continue;
+    const st = [s0]; seen[s0] = 1; let cnt = 0, mnS = 1e9, mxS = -1e9, mnD = 1e9, mxD = -1e9, pS0, pS1, pD0, pD1;
+    while (st.length) {
+      const q = st.pop(), x = q % w, y = (q / w) | 0; cnt++;
+      const sv = x + y, dv = x - y;
+      if (sv < mnS) { mnS = sv; pS0 = [x, y]; } if (sv > mxS) { mxS = sv; pS1 = [x, y]; } if (dv < mnD) { mnD = dv; pD0 = [x, y]; } if (dv > mxD) { mxD = dv; pD1 = [x, y]; }
+      if (x > 0 && !seen[q - 1] && L[q - 1] > T) { seen[q - 1] = 1; st.push(q - 1); }
+      if (x < w - 1 && !seen[q + 1] && L[q + 1] > T) { seen[q + 1] = 1; st.push(q + 1); }
+      if (y > 0 && !seen[q - w] && L[q - w] > T) { seen[q - w] = 1; st.push(q - w); }
+      if (y < hh - 1 && !seen[q + w] && L[q + w] > T) { seen[q + w] = 1; st.push(q + w); }
+    }
+    if (!bestC || cnt > bestC.cnt) bestC = { cnt, tl: pS0, br: pS1, bl: pD0, tr: pD1 };
+  }
+  if (!bestC) return null;
+  const q = [bestC.tl, bestC.tr, bestC.br, bestC.bl];
+  let a = 0; for (let i = 0; i < 4; i++) { const p1 = q[i], p2 = q[(i + 1) % 4]; a += p1[0] * p2[1] - p2[0] * p1[1]; } a = Math.abs(a) / 2;
+  if (a < n * 0.18 || bestC.cnt / a < 0.78 || bestC.cnt > n * 0.985) return null;
+  return q.map((p) => [Math.min(1, Math.max(0, p[0] / (w - 1))), Math.min(1, Math.max(0, p[1] / (hh - 1)))]);
+}
+function solveH(src, dst) {   // omografia: dst (x,y) -> src (u,v)
+  const A = [], B = [];
+  for (let i = 0; i < 4; i++) { const [x, y] = dst[i], [u, v] = src[i]; A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); B.push(u); A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); B.push(v); }
+  for (let i = 0; i < 8; i++) {
+    let m = i; for (let k = i + 1; k < 8; k++) if (Math.abs(A[k][i]) > Math.abs(A[m][i])) m = k;
+    [A[i], A[m]] = [A[m], A[i]]; [B[i], B[m]] = [B[m], B[i]];
+    for (let k = i + 1; k < 8; k++) { const f = A[k][i] / A[i][i]; for (let j = i; j < 8; j++) A[k][j] -= f * A[i][j]; B[k] -= f * B[i]; }
+  }
+  const X = new Array(8).fill(0);
+  for (let i = 7; i >= 0; i--) { let t = B[i]; for (let j = i + 1; j < 8; j++) t -= A[i][j] * X[j]; X[i] = t / A[i][i]; }
+  return X;
+}
+function warpDoc(bmp, quad, maxSide) {
+  const sr = Math.min(1, 2800 / Math.max(bmp.width, bmp.height)), sw = Math.round(bmp.width * sr), sh = Math.round(bmp.height * sr);
+  const sc = document.createElement("canvas"); sc.width = sw; sc.height = sh;
+  const sg = sc.getContext("2d", { willReadFrequently: true }); sg.drawImage(bmp, 0, 0, sw, sh);
+  const S0 = sg.getImageData(0, 0, sw, sh).data, P = quad.map(([x, y]) => [x * (sw - 1), y * (sh - 1)]);
+  const dist = (a, b) => Math.hypot(a[0] - b[0], a[1] - b[1]);
+  let W = Math.max(dist(P[0], P[1]), dist(P[3], P[2])), H = Math.max(dist(P[0], P[3]), dist(P[1], P[2]));
+  const asp = Math.max(W, H) / Math.min(W, H); if (Math.abs(asp - 1.4142) < 0.09) { if (W >= H) { H = W / 1.4142; } else { W = H / 1.4142; } }
+  const k = Math.min(1, maxSide / Math.max(W, H)); W = Math.max(20, Math.round(W * k)); H = Math.max(20, Math.round(H * k));
+  const out = document.createElement("canvas"); out.width = W; out.height = H;
+  const og = out.getContext("2d"), od = og.createImageData(W, H), o = od.data;
+  const m = solveH(P, [[0, 0], [W - 1, 0], [W - 1, H - 1], [0, H - 1]]);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const dn = m[6] * x + m[7] * y + 1, u = (m[0] * x + m[1] * y + m[2]) / dn, v = (m[3] * x + m[4] * y + m[5]) / dn;
+    const x0 = Math.max(0, Math.min(sw - 2, Math.floor(u))), y0 = Math.max(0, Math.min(sh - 2, Math.floor(v))), fx = Math.max(0, Math.min(1, u - x0)), fy = Math.max(0, Math.min(1, v - y0));
+    const i00 = (y0 * sw + x0) * 4, i10 = i00 + 4, i01 = i00 + sw * 4, i11 = i01 + 4, oi = (y * W + x) * 4;
+    for (let c = 0; c < 3; c++) o[oi + c] = (S0[i00 + c] * (1 - fx) + S0[i10 + c] * fx) * (1 - fy) + (S0[i01 + c] * (1 - fx) + S0[i11 + c] * fx) * fy;
+    o[oi + 3] = 255;
+  }
+  og.putImageData(od, 0, 0);
+  return out;
+}
+async function renderPage(bmp, rot, filt, maxSide, quad) {
+  let src = bmp;
+  if (quad) { try { src = warpDoc(bmp, quad, maxSide); } catch { src = bmp; } }
+  const r = Math.min(1, maxSide / Math.max(src.width, src.height));
+  const w = Math.round(src.width * r), hh = Math.round(src.height * r), swap = rot % 180 !== 0;
   const c = document.createElement("canvas"); c.width = swap ? hh : w; c.height = swap ? w : hh;
-  const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate((rot * Math.PI) / 180); g.drawImage(bmp, -w / 2, -hh / 2, w, hh);
+  const g = c.getContext("2d"); g.translate(c.width / 2, c.height / 2); g.rotate((rot * Math.PI) / 180); g.drawImage(src, -w / 2, -hh / 2, w, hh);
   if (filt !== "orig") enhance(c, filt);
   return c;
+}
+/* regolazione manuale dei 4 angoli */
+function cropEditor(bmp, quad, onDone) {
+  const ov = h("div", { style: "position:fixed;inset:0;z-index:65;background:#14202B;display:flex;flex-direction:column;padding:12px;touch-action:none" });
+  const stage = h("div", { style: "position:relative;flex:1;min-height:0;display:flex;align-items:center;justify-content:center" });
+  const c = document.createElement("canvas"), r = Math.min(1, 1400 / Math.max(bmp.width, bmp.height)); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); c.style.cssText = "max-width:100%;max-height:100%;display:block";
+  const wrap = h("div", { style: "position:relative;display:inline-block;line-height:0;max-width:100%;max-height:100%" }, c);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"); svg.setAttribute("viewBox", "0 0 1 1"); svg.setAttribute("preserveAspectRatio", "none"); svg.style.cssText = "position:absolute;inset:0;width:100%;height:100%;overflow:visible";
+  const poly = document.createElementNS("http://www.w3.org/2000/svg", "polygon"); poly.setAttribute("fill", "rgba(37,125,224,.18)"); poly.setAttribute("stroke", "#4DA3FF"); poly.setAttribute("stroke-width", "0.004"); svg.append(poly); wrap.append(svg);
+  let q = (quad || [[0.04, 0.04], [0.96, 0.04], [0.96, 0.96], [0.04, 0.96]]).map((p) => p.slice());
+  const handles = q.map((_, i) => {
+    const e = h("div", { style: "position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;background:rgba(77,163,255,.35);border:3px solid #fff;box-sizing:border-box" });
+    e.onpointerdown = (ev) => { ev.preventDefault(); e.setPointerCapture(ev.pointerId); e.onpointermove = (m) => { const b = wrap.getBoundingClientRect(); q[i] = [Math.min(1, Math.max(0, (m.clientX - b.left) / b.width)), Math.min(1, Math.max(0, (m.clientY - b.top) / b.height))]; draw(); }; e.onpointerup = () => { e.onpointermove = null; }; };
+    wrap.append(e); return e;
+  });
+  function draw() { poly.setAttribute("points", q.map((p) => p.join(",")).join(" ")); handles.forEach((e, i) => { e.style.left = q[i][0] * 100 + "%"; e.style.top = q[i][1] * 100 + "%"; }); }
+  draw(); stage.append(wrap);
+  const bar = h("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px" },
+    h("button", { class: "secondary", onclick: () => { const a = detectDoc(bmp); q = (a || [[0.04, 0.04], [0.96, 0.04], [0.96, 0.96], [0.04, 0.96]]).map((p) => p.slice()); draw(); } }, "✨ Rileva da solo"),
+    h("button", { class: "secondary", onclick: () => { q = [[0, 0], [1, 0], [1, 1], [0, 1]]; draw(); } }, "Tutta la foto"),
+    h("button", { class: "ghost", style: "background:#fff", onclick: () => ov.remove() }, "Annulla"),
+    h("button", { class: "primary", style: "margin:0", onclick: () => { ov.remove(); onDone(q.every((p, i) => p[0] === [0, 1, 1, 0][i] && p[1] === [0, 0, 1, 1][i]) ? null : q); } }, "✔ Fatto"));
+  ov.append(h("div", { style: "color:#fff;font-weight:600;margin-bottom:8px" }, "Trascina i 4 angoli sul bordo del foglio"), stage, bar);
+  document.body.append(ov);
 }
 function buildPdf(pages) {
   const enc = new TextEncoder(), parts = [], offs = []; let len = 0;
@@ -2692,7 +2785,7 @@ async function docForm(jobId) {
   const box = h("div"), say = h("div", { class: "note", style: "display:none" });
   const setSay = (t, err) => { say.style.display = t ? "block" : "none"; say.textContent = t || ""; say.style.borderColor = err ? "#C0392B" : ""; };
   async function addFiles(files) {
-    for (const f of files) { try { pages.push({ bmp: await createImageBitmap(f), rot: 0 }); } catch { alert("Immagine non valida."); } }
+    for (const f of files) { try { const bmp = await createImageBitmap(f); let quad = null; try { quad = detectDoc(bmp); } catch { /* resta tutta la foto */ } pages.push({ bmp, rot: 0, quad, auto: !!quad }); } catch { alert("Immagine non valida."); } }
     analyzed = false; drawScan(); upName();
   }
   const camIn = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
@@ -2700,10 +2793,11 @@ async function docForm(jobId) {
   async function drawScan() {
     const thumbs = [];
     for (let i = 0; i < pages.length; i++) {
-      const c = await renderPage(pages[i].bmp, pages[i].rot, filt, 420);
+      const c = await renderPage(pages[i].bmp, pages[i].rot, filt, 420, pages[i].quad);
       thumbs.push(h("div", { class: "card", style: "display:flex;gap:12px;align-items:center;padding:10px" },
-        h("img", { src: c.toDataURL("image/jpeg", 0.6), alt: "Pagina " + (i + 1), style: "width:72px;border:1px solid #DDE2E6;border-radius:6px" }),
-        h("strong", { style: "flex:1" }, "Pagina " + (i + 1)),
+        h("img", { src: c.toDataURL("image/jpeg", 0.6), alt: "Pagina " + (i + 1), onclick: () => cropEditor(pages[i].bmp, pages[i].quad, (nq) => { pages[i].quad = nq; pages[i].auto = false; analyzed = false; drawScan(); }), style: "width:72px;border:1px solid #DDE2E6;border-radius:6px" }),
+        h("div", { style: "flex:1;min-width:0" }, h("strong", {}, "Pagina " + (i + 1)), h("div", { class: "muted", style: "font-size:12px" }, pages[i].quad ? (pages[i].auto ? "foglio riconosciuto e raddrizzato" : "ritagliato a mano") : "foto intera — tocca ✂️ per ritagliare")),
+        h("button", { class: "secondary", style: "height:40px", "aria-label": "Ritaglia", onclick: () => cropEditor(pages[i].bmp, pages[i].quad, (nq) => { pages[i].quad = nq; pages[i].auto = false; analyzed = false; drawScan(); }) }, "✂️"),
         h("button", { class: "secondary", style: "height:40px", "aria-label": "Ruota", onclick: () => { pages[i].rot = (pages[i].rot + 90) % 360; analyzed = false; drawScan(); } }, "↻"),
         h("button", { class: "deny", style: "height:40px", "aria-label": "Elimina pagina", onclick: () => { pages.splice(i, 1); analyzed = false; drawScan(); upName(); } }, "✕")));
     }
@@ -2776,7 +2870,7 @@ async function docForm(jobId) {
       const f0 = $("df").files[0];
       if (!pages.length && f0 && (f0.type === "application/pdf" || /\.pdf$/i.test(f0.name))) { blob = f0; mime = "application/pdf"; }
       else {
-        const cv = pages.length ? await renderPage(pages[0].bmp, pages[0].rot, "doc", 1800) : await renderPage(await createImageBitmap(f0), 0, "orig", 1800);
+        const cv = pages.length ? await renderPage(pages[0].bmp, pages[0].rot, "doc", 1800, pages[0].quad) : await renderPage(await createImageBitmap(f0), 0, "orig", 1800);
         blob = await new Promise((res) => cv.toBlob(res, "image/jpeg", 0.85)); mime = "image/jpeg";
       }
       const r = await aiReadFile(blob, mime);
@@ -2795,7 +2889,7 @@ async function docForm(jobId) {
   async function makePdf() {
     const out = [];
     for (const p of pages) {
-      const c = await renderPage(p.bmp, p.rot, filt, 2000);
+      const c = await renderPage(p.bmp, p.rot, filt, 2000, p.quad);
       const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.78));
       out.push({ bytes: new Uint8Array(await blob.arrayBuffer()), w: c.width, h: c.height });
     }
