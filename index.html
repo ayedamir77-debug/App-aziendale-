@@ -509,8 +509,8 @@ async function trendView() {
     PA ? sb.from("reports").select("day,user_id,with_ids,minutes").gte("day", PA).lt("day", A).limit(3000).then(chk).catch(() => []) : [],
     sb.from("clients").select("id,category,created_at").limit(1500).then(chk),
     sb.from("documents").select("kind,amount,created_at,doc_date,job_id").limit(3000).then(chk).catch(() => []),
-    own ? sb.from("invoices").select("*").limit(3000).then(chk).catch(() => []) : [],
-    own ? sb.from("expenses").select("*").limit(3000).then(chk).catch(() => []) : []
+    [],
+    []
   ]);
   const people = await team0(), colOf = {}; people.forEach((u, i) => { colOf[u.id] = TR_COL[i % TR_COL.length]; });
   const nameP = (u) => (u === S.p.id ? "Io" : who(u)) || "—";
@@ -622,24 +622,6 @@ async function trendView() {
   const ccol = { privato: "#257de0", azienda: "#f47230", comune: "#00b894", condominio: "#f2a600", altro: "#6a4ce2", none: "#9AA3AD" };
   out.push(H("👤 Clienti", cls.length + " in totale · " + cls.filter((c) => inP(c.created_at)).length + " nuovi nel periodo"),
     card(seg([...Object.keys(CLCATS), "none"].map((k) => ({ l: CLCATS[k] || "Da classificare", v: byC[k] || 0, c: ccol[k] }))), legend([...Object.keys(CLCATS), "none"].filter((k) => byC[k]).map((k) => [ccol[k], (CLCATS[k] ? CLCATS[k].replace(/^\S+ /, "") : "Da classificare")]))));
-  /* soldi */
-  if (own) {
-    const sum = (arr, k) => r2(arr.reduce((x, y) => x + Number(y[k] || 0), 0));
-    const em = inv.filter((i) => i.direction === "emessa"), ri = inv.filter((i) => i.direction === "ricevuta"), today = isoDay(new Date());
-    const emP = em.filter((i) => inP(i.doc_date)), riP = ri.filter((i) => inP(i.doc_date)), exP = exps.filter((e) => inP(e.expense_date));
-    const incP = em.filter((i) => i.paid && inP(i.paid_date || i.doc_date));
-    const toCol = em.filter((i) => !i.paid), toPay = ri.filter((i) => !i.paid), late = toCol.filter((i) => i.due_date && i.due_date < today);
-    const fat = sum(emP, "total"), costi = r2(sum(riP, "total") + sum(exP, "amount")), mon = {};
-    for (const i of emP) { const k = bkey(i.doc_date); (mon[k] = mon[k] || { f: 0, c: 0 }).f += Number(i.total || 0); }
-    for (const i of riP) { const k = bkey(i.doc_date); (mon[k] = mon[k] || { f: 0, c: 0 }).c += Number(i.total || 0); }
-    for (const e of exP) { const k = bkey(e.expense_date); (mon[k] = mon[k] || { f: 0, c: 0 }).c += Number(e.amount || 0); }
-    const mk = Object.keys(mon).sort().slice(-12);
-    out.push(H("💶 Soldi", "solo tu li vedi"),
-      tiles([tile("📤", "Fatturato", money(fat)), tile("✅", "Incassato", money(sum(incP, "total"))), tile("🧾", "Spese e acquisti", money(costi)), tile("📊", "Differenza", money(r2(fat - costi)))]),
-      mk.length ? [h("div", { style: "height:10px" }), card(cols(mk, [{ n: "Fatturato", c: "#257de0", v: (k) => (mon[k] || {}).f || 0 }, { n: "Spese", c: "#f47230", v: (k) => (mon[k] || {}).c || 0 }], (v) => Math.round(v) + "€", blab, 110), legend([["#257de0", "Fatturato"], ["#f47230", "Spese e acquisti"]]), h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, "Le colonne sono impilate: la parte blu è il fatturato, quella arancione le spese."))] : null,
-      h("div", { style: "height:10px" }),
-      card(h("div", { class: "muted" }, "Da gestire adesso"), h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, "Da incassare"), h("strong", {}, money(sum(toCol, "total")) + " (" + toCol.length + ")")), h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, "⚠️ In ritardo"), h("strong", {}, late.length ? money(sum(late, "total")) + " (" + late.length + ")" : "nessuna")), h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, "Da pagare ai fornitori"), h("strong", {}, money(sum(toPay, "total")) + " (" + toPay.length + ")"))));
-  }
   return out;
 }
 
