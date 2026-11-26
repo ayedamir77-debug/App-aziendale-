@@ -500,7 +500,12 @@ async function repList(jobIds, empty) {
 }
 async function reportsView() {
   if (!S.repDay) S.repDay = isoDay(new Date());
-  const list = chk(await sb.from("reports").select("*, jobs(title, clients(name))").eq("day", S.repDay).order("created_at", { ascending: false }).limit(100));
+  const rq = String(S.repQ || "").trim().toLowerCase();
+  let list;
+  if (rq) {
+    const all0 = chk(await sb.from("reports").select("*, jobs(title, clients(name))").order("day", { ascending: false }).order("created_at", { ascending: false }).limit(400));
+    list = all0.filter((r) => ((r.jobs ? r.jobs.title : "") + " " + (r.jobs && r.jobs.clients ? r.jobs.clients.name : "") + " " + (r.summary || "")).toLowerCase().includes(rq)).slice(0, S.repLim || 10);
+  } else list = chk(await sb.from("reports").select("*, jobs(title, clients(name))").eq("day", S.repDay).order("created_at", { ascending: false }).limit(100));
   await loadTeam();
   const cm = await commentsFor("report", list.map((r) => r.id));
   const jobIds = [...new Set(list.map((r) => r.job_id).filter(Boolean))];
@@ -535,13 +540,16 @@ async function reportsView() {
     h("h1", {}, "Rapportini"),
     h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "reportForm" }) }, "+ Nuovo rapportino"),
     h("p", { class: "muted", style: "margin-top:10px" }, "Visibili a tutti. Compilarlo è facoltativo: l'app non manda avvisi a chi non lo fa."),
-    h("div", { class: "row", style: "margin:14px 0 4px;gap:8px" },
+    h("input", { type: "search", placeholder: "Cerca per cliente o lavoro…", value: S.repQ || "", style: "margin-top:12px", enterkeyhint: "search", onkeydown: (e) => { if (e.key === "Enter") { S.repQ = e.target.value; S.repLim = 10; render(); } }, onsearch: (e) => { if (!e.target.value && S.repQ) { S.repQ = ""; render(); } } }),
+    rq ? h("div", { class: "muted", style: "margin:6px 0" }, "Risultati della ricerca in tutti i giorni (premi Invio). ", h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); S.repQ = ""; render(); } }, "Cancella ricerca")) : null,
+    rq ? null : h("div", { class: "row", style: "margin:14px 0 4px;gap:8px" },
       h("button", { class: "secondary", style: "flex:0 0 52px", "aria-label": "Giorno prima", onclick: () => shift(-1) }, "‹"),
       h("input", { type: "date", value: S.repDay, style: "flex:1;margin:0", onchange: (e) => { if (e.target.value) { S.repDay = e.target.value; render(); } } }),
       h("button", { class: "secondary", style: "flex:0 0 52px", "aria-label": "Giorno dopo", onclick: () => shift(1) }, "›")),
-    S.repDay !== isoDay(new Date()) ? h("button", { class: "ghost", onclick: () => { S.repDay = isoDay(new Date()); render(); } }, "Torna a oggi") : null,
-    h("h2", { style: "text-transform:capitalize" }, dayLabel(S.repDay)),
-    list.length ? list.map(card) : h("p", { class: "muted" }, "Nessun rapportino in questo giorno.")
+    !rq && S.repDay !== isoDay(new Date()) ? h("button", { class: "ghost", onclick: () => { S.repDay = isoDay(new Date()); render(); } }, "Torna a oggi") : null,
+    rq ? null : h("h2", { style: "text-transform:capitalize" }, dayLabel(S.repDay)),
+    list.length ? (rq ? list.map((r) => [h("h2", { style: "text-transform:capitalize;margin-bottom:4px" }, dayLabel(r.day)), card(r)]) : list.map(card)) : h("p", { class: "muted" }, rq ? "Nessun rapportino trovato." : "Nessun rapportino in questo giorno."),
+    rq && list.length >= (S.repLim || 10) ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.repLim = (S.repLim || 10) + 10; render(); } }, "Mostra altri") : null
   ];
 }
 function tidyText(t) {
@@ -1793,7 +1801,8 @@ async function jobsView() {
   if (!S.jobLim) S.jobLim = 8;
   const drawJ = () => {
     const q = N(S.jobQ).trim(), lim = S.jobFilter === "open" ? 1e9 : S.jobLim;
-    const l2 = q && S.jobFilter !== "open" ? list.filter((j) => N(j.title + " " + (j.clients ? j.clients.name : "") + " " + (j.address || "")).includes(q)) : list;
+    const dd = S.jobDay && S.jobFilter !== "open" ? list.filter((j) => j.start_at && isoDay(new Date(j.start_at)) === S.jobDay) : list;
+    const l2 = q && S.jobFilter !== "open" ? dd.filter((j) => N(j.title + " " + (j.clients ? j.clients.name : "") + " " + (j.address || "")).includes(q)) : dd;
     box.replaceChildren(...(l2.length ? [...l2.slice(0, lim).map(jobCard), l2.length > lim ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.jobLim += 8; drawJ(); } }, "Mostra altri (" + (l2.length - lim) + ")") : null].filter(Boolean) : [h("p", { class: "muted" }, q ? "Nessun lavoro trovato." : OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro per ora.")]));
   };
   drawJ();
@@ -1801,7 +1810,8 @@ async function jobsView() {
     h("h1", {}, "Lavori"),
     h("div", { class: "chips" }, chip("open", "Aperti"), chip("done", "📦 Archivio"), chip("all", "Tutti")),
     OWNER() ? h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "jobForm" }) }, "+ Nuovo lavoro") : null,
-    S.jobFilter !== "open" ? h("input", { type: "search", placeholder: "Cerca un lavoro o un cliente…", value: S.jobQ || "", style: "margin-bottom:12px", oninput: (e) => { S.jobQ = e.target.value; S.jobLim = 8; drawJ(); } }) : null,
+    S.jobFilter !== "open" ? h("div", { class: "row", style: "gap:8px;margin-bottom:8px" }, h("input", { type: "date", value: S.jobDay || "", style: "flex:1;margin:0", "aria-label": "Data", onchange: (e) => { S.jobDay = e.target.value; S.jobLim = 8; drawJ(); } }), h("button", { class: "secondary", style: "flex:0 0 auto;padding:0 14px", onclick: (e) => { S.jobDay = ""; e.target.previousSibling.value = ""; drawJ(); } }, "Tutte le date")) : null,
+    S.jobFilter !== "open" ? h("input", { type: "search", placeholder: "Cerca per cliente o lavoro…", value: S.jobQ || "", style: "margin-bottom:12px", oninput: (e) => { S.jobQ = e.target.value; S.jobLim = 8; drawJ(); } }) : null,
     box
   ];
 }
