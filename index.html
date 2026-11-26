@@ -55,7 +55,7 @@ button:disabled{opacity:.6}
 .chip{height:38px;padding:0 14px;background:#fff;border:1px solid #DDE2E6;border-radius:19px;font-size:14px;font-weight:500;color:#14202B}
 .chip.on{background:#02175A;border-color:#02175A;color:#fff}
 .badge{font-size:12px;font-weight:600;padding:4px 10px;border-radius:12px;white-space:nowrap}
-.b-todo{background:#EEF0F2;color:#3B4651}.b-doing{background:#FFF1D6;color:#7A4B00}.b-done{background:#DDF3E4;color:#14602B}
+.b-todo{background:#EEF0F2;color:#3B4651}.b-doing{background:#FFF1D6;color:#7A4B00}.b-done{background:#DDF3E4;color:#14602B}.b-void{background:#EEF0F2;color:#6B7580;text-decoration:line-through}
 .when{font-size:14px;font-weight:600;color:#02175A}
 .title{font-size:17px;font-weight:600;margin:6px 0 2px}
 .nav{position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid #DDE2E6;display:flex;justify-content:space-around;padding:6px 4px calc(10px + env(safe-area-inset-bottom));z-index:5}
@@ -160,7 +160,7 @@ const mapsUrl = (a) => "https://www.google.com/maps/search/?api=1&query=" + enco
 const telUrl = (p) => "tel:" + String(p).replace(/[^\d+]/g, "");
 const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; };
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-const STATUS = { todo: "Da fare", doing: "In corso", done: "Completato" };
+const STATUS = { todo: "Da fare", doing: "In corso", done: "Completato", void: "Non più necessario" };
 /* NAME-START */
 const KINDS = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformità", contratto: "Contratto", firma: "Firma", rapporto: "Rapporto", altro: "Altro" };
 const KIND_FILE = { foto: "Foto", bolla: "Bolla", fattura: "Fattura", preventivo: "Preventivo", scontrino: "Scontrino", conformita: "Conformita", contratto: "Contratto", altro: "Documento" };
@@ -1767,8 +1767,8 @@ function jobCard(j) {
 async function jobsView() {
   const data = chk(await sb.from("jobs").select("*, clients(name,phone,address), job_assignments(user_id)").order("start_at", { ascending: true, nullsFirst: false }));
   let list = data;
-  if (S.jobFilter === "open") list = list.filter((j) => j.status !== "done");
-  else if (S.jobFilter === "done") list = list.filter((j) => j.status === "done").reverse();
+  if (S.jobFilter === "open") list = list.filter((j) => j.status !== "done" && j.status !== "void");
+  else if (S.jobFilter === "done") list = list.filter((j) => j.status === "done" || j.status === "void").reverse();
   const chip = (k, l) => h("button", { class: "chip" + (S.jobFilter === k ? " on" : ""), onclick: () => { S.jobFilter = k; render(); } }, l);
   return [
     h("h1", {}, "Lavori"),
@@ -1807,8 +1807,8 @@ async function jobView(id) {
     h("h2", {}, "Avanzamento"),
     h("div", { class: "card" },
       h("label", { for: "st", style: "margin-top:0" }, "Stato"),
-      h("select", { id: "st", onchange: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); if ($("st").value === "done") { S.jobFilter = "open"; back(); } }) }, ["todo", "doing", "done"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
-      h("p", { class: "muted", style: "margin:6px 0 0" }, "Quando scegli «Completato» il lavoro si salva da solo e va nell'📦 Archivio."),
+      h("select", { id: "st", onchange: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); if (["done", "void"].includes($("st").value)) { S.jobFilter = "open"; back(); } }) }, ["todo", "doing", "done", "void"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
+      h("p", { class: "muted", style: "margin:6px 0 0" }, "Quando scegli «Completato» o «Non più necessario» il lavoro si salva da solo e va nell'📦 Archivio."),
       h("label", { for: "fn" }, "Note dal cantiere"),
       h("textarea", { id: "fn", rows: "3", placeholder: "Cosa hai fatto, problemi, cose da ricordare…" }, j.field_notes || ""),
       h("button", { class: "primary", style: "margin-top:12px", onclick: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); }) }, "Salva avanzamento")),
@@ -2569,7 +2569,7 @@ async function hoursView() {
   const isNow = a.getFullYear() === now.getFullYear() && a.getMonth() === now.getMonth();
   const entries = chk(await sb.from("time_entries").select("*, jobs(title)").gte("started_at", a.toISOString()).lt("started_at", z.toISOString()).order("started_at", { ascending: false }));
   const open = chk(await sb.from("time_entries").select("*, jobs(title)").is("ended_at", null)).find((e) => e.user_id === S.p.id) || entries.find((e) => !e.ended_at);
-  const myJobs = chk(await sb.from("jobs").select("id,title").neq("status", "done").order("start_at", { nullsFirst: false }));
+  const myJobs = chk(await sb.from("jobs").select("id,title").not("status", "in", "(done,void)").order("start_at", { nullsFirst: false }));
   let reps = [];
   try { reps = chk(await sb.from("reports").select("id,day,minutes,user_id,with_ids,summary,jobs(title,clients(name))").gte("day", isoDay(a)).lt("day", isoDay(z)).not("minutes", "is", null).or("user_id.eq." + S.p.id + ",with_ids.cs.{" + S.p.id + "}")).filter((r) => (r.with_ids && r.with_ids.length) ? r.with_ids.includes(S.p.id) : r.user_id === S.p.id); } catch { /* ignora */ }
   /* giorni: le ore dei rapportini hanno la precedenza, altrimenti le timbrature */
@@ -3080,11 +3080,11 @@ async function homeView() {
   const sel = "*, clients(name,phone,address), job_assignments(user_id)";
   const [today, next] = await Promise.all([
     sb.from("jobs").select(sel).gte("start_at", t0.toISOString()).lt("start_at", t1.toISOString()).order("start_at").then(chk),
-    sb.from("jobs").select(sel).gte("start_at", t1.toISOString()).lt("start_at", t8.toISOString()).neq("status", "done").order("start_at").limit(5).then(chk)
+    sb.from("jobs").select(sel).gte("start_at", t1.toISOString()).lt("start_at", t8.toISOString()).not("status", "in", "(done,void)").order("start_at").limit(5).then(chk)
   ]);
   const hr0 = now.getHours(), greet = hr0 < 13 ? "Buongiorno" : hr0 < 18 ? "Buon pomeriggio" : "Buonasera";
   const first = (S.p.full_name || "").split(" ")[0];
-  const open = today.filter((j) => j.status !== "done");
+  const open = today.filter((j) => j.status !== "done" && j.status !== "void");
   const nodes = [
     h("div", { class: "hero" }, h("div", { style: "display:flex;align-items:center;gap:12px" }, logoBox(52), h("div", {}, h("div", { class: "nm" }, S.p.companies?.name || "La tua azienda"), h("div", { class: "tg" }, "Impianti elettrici · Sicurezza · Reti · Domotica"))),
       h("div", { class: "ico", "aria-hidden": "true" }, ["⚡", "🚪", "📹", "🚨", "🌐", "📡", "🏠"].map((x) => h("span", {}, x)))),
