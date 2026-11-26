@@ -1788,12 +1788,21 @@ async function jobsView() {
   let list = data;
   if (S.jobFilter === "open") list = list.filter((j) => j.status !== "done" && j.status !== "void");
   else if (S.jobFilter === "done") list = list.filter((j) => j.status === "done" || j.status === "void").reverse();
-  const chip = (k, l) => h("button", { class: "chip" + (S.jobFilter === k ? " on" : ""), onclick: () => { S.jobFilter = k; render(); } }, l);
+  const chip = (k, l) => h("button", { class: "chip" + (S.jobFilter === k ? " on" : ""), onclick: () => { S.jobFilter = k; S.jobQ = ""; S.jobLim = 8; render(); } }, l);
+  const box = h("div"), N = (v) => String(v || "").toLowerCase();
+  if (!S.jobLim) S.jobLim = 8;
+  const drawJ = () => {
+    const q = N(S.jobQ).trim(), lim = S.jobFilter === "open" ? 1e9 : S.jobLim;
+    const l2 = q && S.jobFilter !== "open" ? list.filter((j) => N(j.title + " " + (j.clients ? j.clients.name : "") + " " + (j.address || "")).includes(q)) : list;
+    box.replaceChildren(...(l2.length ? [...l2.slice(0, lim).map(jobCard), l2.length > lim ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.jobLim += 8; drawJ(); } }, "Mostra altri (" + (l2.length - lim) + ")") : null].filter(Boolean) : [h("p", { class: "muted" }, q ? "Nessun lavoro trovato." : OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro per ora.")]));
+  };
+  drawJ();
   return [
     h("h1", {}, "Lavori"),
     h("div", { class: "chips" }, chip("open", "Aperti"), chip("done", "📦 Archivio"), chip("all", "Tutti")),
     OWNER() ? h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "jobForm" }) }, "+ Nuovo lavoro") : null,
-    list.length ? list.map(jobCard) : h("p", {}, OWNER() ? "Nessun lavoro. Creane uno con il pulsante qui sopra." : "Nessun lavoro per ora.")
+    S.jobFilter !== "open" ? h("input", { type: "search", placeholder: "Cerca un lavoro o un cliente…", value: S.jobQ || "", style: "margin-bottom:12px", oninput: (e) => { S.jobQ = e.target.value; S.jobLim = 8; drawJ(); } }) : null,
+    box
   ];
 }
 
@@ -2252,7 +2261,7 @@ async function docsView() {
   const years = [...new Set(all.map(docYear).filter(Boolean))].sort().reverse();
   if (S.docYear !== "all" && !years.includes(S.docYear)) S.docYear = "all";
   const list = all.filter((d) => (S.docKind === "all" || d.kind === S.docKind) && (S.docYear === "all" || docYear(d) === S.docYear));
-  const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; render(); } }, l);
+  const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; S.docLim = 10; render(); } }, l);
   const unpaid = all.filter((d) => d.kind === "fattura" && !d.paid && d.amount != null).reduce((s, d) => s + Number(d.amount), 0);
   let used = null;
   if (OWNER()) { try { used = chk(await sb.from("documents").select("size")).reduce((s, d) => s + Number(d.size || 0), 0); } catch { /* non essenziale */ } }
@@ -2284,8 +2293,8 @@ async function docsView() {
     h("div", { class: "chips", style: "margin-top:12px" }, chip("all", "Tutti"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
     years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
     tools,
-    list.length ? list.slice(0, 120).map((d) => docItem(d, true)) : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento."),
-    list.length > 120 ? h("p", { class: "muted" }, "Mostrati i primi 120: usa la ricerca o i filtri per trovare gli altri.") : null
+    list.length ? list.slice(0, S.docLim || 10).map((d) => docItem(d, true)) : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento."),
+    list.length > (S.docLim || 10) ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.docLim = (S.docLim || 10) + 10; render(); } }, "Mostra altri (" + (list.length - (S.docLim || 10)) + ")") : null
   ];
 }
 async function docEditForm(id) {
