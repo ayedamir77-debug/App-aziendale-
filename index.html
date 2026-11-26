@@ -79,20 +79,25 @@ button:disabled{opacity:.6}
 .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 /* ---- versione PC (schermo largo): menu a sinistra, contenuto più largo ---- */
 @media (min-width:900px){
- #app{max-width:1000px;margin:0 0 0 210px;padding:28px 40px 60px}
- .nav{top:0;right:auto;bottom:0;width:210px;flex-direction:column;justify-content:flex-start;gap:6px;padding:18px 12px;border-top:0;border-right:1px solid #DDE2E6}
+ #app{max-width:1100px;margin:0 0 0 250px;padding:28px 40px 60px}
+ .nav{top:0;right:auto;bottom:0;width:250px;flex-direction:column;justify-content:flex-start;gap:6px;padding:18px 12px;border-top:0;border-right:1px solid #DDE2E6}
  .nav button{flex:none;height:54px;font-size:15px;display:flex;align-items:center;gap:12px;padding:0 14px;text-align:left;min-width:0}
  .nav button span{display:inline!important;font-size:22px!important;width:30px}
+ .tm{display:none}
+ .nav.side{overflow-y:auto;gap:2px;padding:14px 10px}
+ .nav.side button{height:42px;font-size:15px}
+ .nav.side button span{font-size:19px!important;width:28px}
+ .nav .ntl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#7A8591;margin:14px 8px 4px}
  .grid{grid-template-columns:repeat(6,1fr)}
  .sq{min-height:110px}
  .cal button{height:56px}
- #rbar{left:210px;bottom:0;max-width:1000px;margin:0 auto 0 210px}
+ #rbar{left:250px;bottom:0;max-width:1000px;margin:0 auto 0 250px}
  .hero{padding:22px}
  .hero .nm{font-size:22px;line-height:26px}
  button.primary,button.secondary{max-width:420px}
  h1{font-size:28px}
 }
-@media (min-width:1500px){ #app{margin:0 auto;padding-left:250px;max-width:1300px;box-sizing:border-box} }
+@media (min-width:1500px){ #app{margin:0 auto;padding-left:290px;max-width:1400px;box-sizing:border-box} }
 
 .sq{height:auto;min-height:96px;aspect-ratio:1/0.95;background:#fff;border:1px solid #DDE2E6;border-radius:14px;color:#14202B;font-size:13px;font-weight:600;line-height:1.2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:8px 4px;text-align:center}
 .sq .ic{font-size:28px;line-height:30px}
@@ -357,6 +362,7 @@ const nameOf = (id) => (S.team.find((t) => t.id === id) || {}).full_name || "";
 function go(sub) { S.stack.push({ tab: S.tab, sub: S.sub }); S.sub = sub; history.pushState({}, ""); render(); window.scrollTo(0, 0); }
 function back() { if (S.stack.length) history.back(); else { S.sub = null; render(); } }
 function setTab(t) { if (S.p && (t !== S.tab || S.sub)) { S.stack.push({ tab: S.tab, sub: S.sub }); history.pushState({}, ""); } S.tab = t; S.sub = null; render(); window.scrollTo(0, 0); }
+{ let wide = window.innerWidth >= 900; window.addEventListener("resize", () => { const w = window.innerWidth >= 900; if (w !== wide) { wide = w; if (S.p) render(); } }); }
 window.addEventListener("popstate", () => {
   if (!S.p) return;
   const x = S.stack.pop();
@@ -460,20 +466,22 @@ async function commentsFor(type, ids) {
 }
 
 /* ---------- Menu (tutte le sezioni, in quadrati) ---------- */
-function moreView() {
-  const own = OWNER();
-  const sq = (icon, title, fn) => h("button", { class: "sq", onclick: fn }, h("span", { class: "ic" }, icon), h("span", {}, title));
-  const group = (title, items) => { const it = items.filter(Boolean); return it.length ? [h("h2", {}, title), h("div", { class: "grid" }, it)] : null; };
-  const T = (k) => () => setTab(k), G = (t) => () => go({ t });
+function menuGroups() {
+  const own = OWNER(), T = (ic, l, k) => ({ ic, l, tab: k }), G = (ic, l, t) => ({ ic, l, sub: t });
+  const A = (a) => a.filter(Boolean);
   return [
-    h("h1", {}, "Menu"),
-    group("Lavoro", [sq("🔧", "Lavori", T("jobs")), sq("📅", "Agenda", T("cal")), sq("👤", "Clienti", T("clients")), sq("📝", "Rapportini", G("reports")), sq("🚨", "Urgenti", G("urgent"))]),
-    group("Documenti e soldi", [sq("🗂️", "Documenti", T("docs")), own ? sq("💼", "Ufficio", T("office")) : null, own ? sq("✉️", "Solleciti", G("chase")) : null]),
-    group("Tecnica", [sq("📚", "Biblioteca", G("library")), sq("🏠", "Impianti", G("assets")), sq("📦", "Magazzino", G("stock"))]),
-    group("Squadra", [sq("💬", "Chat", G("chat")), sq("📣", "Bacheca", G("posts")), own ? null : sq("⏱️", "Le mie ore", T("hours")), sq("🏖️", "Ferie e permessi", G("leave")), own ? sq("👥", "Team", T("team")) : null]),
-    group("Mezzi e scadenze", [sq("🚐", "Mezzi", G("vehicles")), sq("🛠️", "Garanzie e manutenzioni", G("warr"))]),
-    group("Strumenti", [sq("🎙️", "Walkie-talkie", G("walkie")), sq("👤", "Il mio profilo", G("profile")), OWNER() ? sq("💾", "Backup", G("backup")) : null, sq("🔎", "Cerca", G("search")), sq("🔔", "Novità", G("news")), sq("📻", "Radio", G("radio")), sq("🤖", "Assistente IA", G("extra")), sq("ℹ️", "Info", G("info"))])
+    ["Lavoro", A([T("🔧", "Lavori", "jobs"), T("📅", "Agenda", "cal"), T("👤", "Clienti", "clients"), G("📝", "Rapportini", "reports"), G("🚨", "Urgenti", "urgent")])],
+    ["Documenti e soldi", A([T("🗂️", "Documenti", "docs"), own ? T("💼", "Ufficio", "office") : null, own ? G("✉️", "Solleciti", "chase") : null])],
+    ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock")])],
+    ["Squadra", A([G("💬", "Chat", "chat"), G("📣", "Bacheca", "posts"), own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null])],
+    ["Mezzi e scadenze", A([G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr")])],
+    ["Strumenti", A([G("🎙️", "Walkie-talkie", "walkie"), G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🔎", "Cerca", "search"), G("🔔", "Novità", "news"), G("📻", "Radio", "radio"), G("🤖", "Assistente IA", "extra"), G("ℹ️", "Info", "info")])]
   ];
+}
+const menuGo = (x) => () => (x.tab ? setTab(x.tab) : go({ t: x.sub }));
+function moreView() {
+  const sq = (x) => h("button", { class: "sq", onclick: menuGo(x) }, h("span", { class: "ic" }, x.ic), h("span", {}, x.l));
+  return [h("h1", {}, "Menu"), ...menuGroups().map(([t, it]) => [h("h2", {}, t), h("div", { class: "grid" }, it.map(sq))])];
 }
 
 /* ---------- rapportini ---------- */
@@ -1790,12 +1798,18 @@ function topbar(isSub) {
   return h("div", { class: "top" },
     ["home", "jobs", "cal", "more"].includes(S.tab)
       ? h("span", { class: "muted", style: "display:flex;align-items:center;gap:8px" }, logoBox(28), S.p.companies?.name || "")
-      : h("button", { class: "ghost", onclick: () => setTab("more") }, "← Menu"),
+      : h("button", { class: "ghost tm", onclick: () => setTab("more") }, "← Menu"),
     h("span", {}, h("button", { class: "ghost", id: "bell", "aria-label": "Novità", style: "margin-right:14px", onclick: () => go({ t: "news" }) }, "🔔"), h("button", { class: "ghost", onclick: logout }, "Esci")));
 }
 function navbar() {
   const items = [["home", "🏠", "Home"], ["jobs", "🔧", "Lavori"], ["cal", "📅", "Agenda"], ["more", "☰", "Menu"]];
   const cur = ["home", "jobs", "cal"].includes(S.tab) ? S.tab : "more";
+  if (window.innerWidth >= 900) {
+    /* schermo largo: nel menu a sinistra ci sono tutte le sezioni */
+    const top = h("button", { class: S.tab === "home" && !S.sub ? "on" : "", onclick: () => setTab("home") }, h("span", {}, "🏠"), "Home");
+    const on = (x) => (x.tab ? S.tab === x.tab && !S.sub : !!S.sub && S.sub.t === x.sub);
+    return h("div", { class: "nav side" }, top, ...menuGroups().map(([t, it]) => [h("div", { class: "ntl" }, t), ...it.map((x) => h("button", { class: on(x) ? "on" : "", onclick: menuGo(x) }, h("span", {}, x.ic), x.l))]));
+  }
   return h("div", { class: "nav" }, items.map(([k, ic, l]) => h("button", { class: cur === k ? "on" : "", onclick: () => setTab(k) }, h("span", { style: "display:block;font-size:20px;line-height:22px" }, ic), l)));
 }
 const badge = (s) => h("span", { class: "badge b-" + s }, STATUS[s]);
