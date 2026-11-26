@@ -503,7 +503,7 @@ async function trendView() {
     all: [new Date(2000, 0, 1), new Date(2100, 0, 1), "Da sempre", null, ""] };
   const [a0, b0, plabel, pa0, pname] = rng[P], A = isoDay(a0), B = isoDay(b0), inP = (x) => !!x && String(x).slice(0, 10) >= A && String(x).slice(0, 10) < B;
   const PA = pa0 ? isoDay(pa0) : null;
-  const [jobs, reps, prev, cls, docs, inv, exps] = await Promise.all([
+  const [jobs, reps0, prev0, cls, docs, inv, exps] = await Promise.all([
     sb.from("jobs").select("id,title,status,description,created_at,clients(name)").limit(1500).then(chk),
     sb.from("reports").select("day,user_id,with_ids,minutes,materials,job_id").gte("day", A).lt("day", B).limit(3000).then(chk),
     PA ? sb.from("reports").select("day,user_id,with_ids,minutes").gte("day", PA).lt("day", A).limit(3000).then(chk).catch(() => []) : [],
@@ -512,7 +512,9 @@ async function trendView() {
     [],
     []
   ]);
-  const people = await team0(), colOf = {}; people.forEach((u, i) => { colOf[u.id] = TR_COL[i % TR_COL.length]; });
+  const mine = (r) => r.user_id === S.p.id || (r.with_ids || []).includes(S.p.id);
+  const reps = own ? reps0 : reps0.filter(mine), prev = own ? prev0 : prev0.filter(mine);
+  const people = (await team0()).filter((u) => own || u.id === S.p.id), colOf = {}; people.forEach((u, i) => { colOf[u.id] = TR_COL[i % TR_COL.length]; });
   const nameP = (u) => (u === S.p.id ? "Io" : who(u)) || "—";
   const jt = {}; for (const j of jobs) jt[j.id] = j.title;
   /* ---- calcoli ---- */
@@ -574,8 +576,8 @@ async function trendView() {
     tiles([
       tile("⏱", "Ore lavorate", dur(tot * 60000), delta(tot, totPrev)),
       tile("📝", "Rapportini", String(reps.length), h("div", { class: "muted", style: "font-size:12px" }, days + (days === 1 ? " giorno di lavoro" : " giorni di lavoro"))),
-      tile("🔧", "Lavori aperti", String(openN.length), h("div", { class: "muted", style: "font-size:12px" }, newJ.filter((j) => !urg(j)).length + " nuovi nel periodo")),
-      tile(toBack.length ? "↩️" : "🚨", toBack.length ? "Da tornare" : "Urgenze", String(toBack.length || newJ.filter(urg).length), h("div", { class: "muted", style: "font-size:12px" }, toBack.length ? "interventi da completare" : "interventi nel periodo"))
+      own ? tile("🔧", "Lavori aperti", String(openN.length), h("div", { class: "muted", style: "font-size:12px" }, newJ.filter((j) => !urg(j)).length + " nuovi nel periodo")) : tile("🔧", "Lavori seguiti", String(new Set(reps.map((r) => r.job_id).filter(Boolean)).size), h("div", { class: "muted", style: "font-size:12px" }, "nel periodo")),
+      own ? tile(toBack.length ? "↩️" : "🚨", toBack.length ? "Da tornare" : "Urgenze", String(toBack.length || newJ.filter(urg).length), h("div", { class: "muted", style: "font-size:12px" }, toBack.length ? "interventi da completare" : "interventi nel periodo")) : tile("📅", "Media al giorno", days ? dur(tot / days * 60000) : "—", h("div", { class: "muted", style: "font-size:12px" }, "nei giorni lavorati"))
     ]),
     /* ore nel tempo */
     H("Ore nel tempo", wide ? "mese per mese" : "settimana per settimana (da lunedì)"),
@@ -607,20 +609,21 @@ async function trendView() {
   }
   /* lavori */
   const sTodo = openN.filter((j) => j.status === "todo" && !toBack.includes(j)).length, sDo = openN.filter((j) => j.status === "doing" && !toBack.includes(j)).length;
-  out.push(H("🔧 Lavori adesso", "situazione di oggi"),
+  if (own) out.push(H("🔧 Lavori adesso", "situazione di oggi"),
     card(seg([{ l: "Da fare", v: sTodo, c: "#257de0" }, { l: "In corso", v: sDo, c: "#f2a600" }, { l: "Da tornare", v: openN.filter((j) => toBack.includes(j)).length, c: "#ec4647" }]),
       legend([["#257de0", "Da fare"], ["#f2a600", "In corso"], ["#ec4647", "Da tornare"]]),
       toBack.length ? h("div", { style: "margin-top:12px" }, h("div", { class: "muted", style: "margin-bottom:2px" }, "↩️ Da tornare"), toBack.slice(0, 6).map((j) => h("div", { class: "row", style: "padding:5px 0;cursor:pointer;border-top:1px solid #EAEDEF", onclick: () => go({ t: "job", id: j.id }) }, h("span", {}, (j.clients ? j.clients.name + " — " : "") + j.title), h("span", { class: "muted" }, "›")))) : null),
-    Object.keys(perJob).length ? [H("Lavori con più ore", rng[P][2].toLowerCase()), card(hbars(Object.entries(perJob).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([id, m]) => ({ l: jt[id] || "—", v: m })), (m) => dur(m * 60000), "#257de0"))] : null);
+    null);
+  if (Object.keys(perJob).length) out.push(...[H("Lavori con più ore", rng[P][2].toLowerCase()), card(hbars(Object.entries(perJob).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([id, m]) => ({ l: jt[id] || "—", v: m })), (m) => dur(m * 60000), "#257de0"))]);
   /* materiale */
   out.push(H("🧰 Materiale usato", rng[P][2].toLowerCase()), card(mats.length ? hbars(mats.map((m) => ({ l: m.d + (m.u ? " (" + m.u + ")" : ""), v: Math.round(m.q * 100) / 100 })), (v) => String(v), "#00b894") : h("div", { class: "muted" }, "Nessun materiale con quantità nel periodo."), recov ? h("div", { class: "muted", style: "margin-top:6px;font-size:13px" }, "♻️ Voci recuperate e rimesse in magazzino: " + recov) : null));
   /* documenti */
   const dOth = dP.length - cnt("foto") - cnt("bolla") - cnt("fattura") - cnt("scontrino"), nb = dP.filter((d) => d.kind === "bolla" && d.amount == null).length;
-  out.push(H("📎 Documenti caricati", rng[P][2].toLowerCase()), tiles([tile("📷", "Foto", String(cnt("foto"))), tile("🧾", "Bolle", String(cnt("bolla"))), tile("📄", "Fatture", String(cnt("fattura"))), tile("🗂️", "Scontrini e altri", String(cnt("scontrino") + dOth))]),
+  if (own) out.push(H("📎 Documenti caricati", rng[P][2].toLowerCase()), tiles([tile("📷", "Foto", String(cnt("foto"))), tile("🧾", "Bolle", String(cnt("bolla"))), tile("📄", "Fatture", String(cnt("fattura"))), tile("🗂️", "Scontrini e altri", String(cnt("scontrino") + dOth))]),
     nb ? h("div", { class: "note", style: "margin-top:10px" }, "⚠️ Bolle senza importo: " + nb) : null);
   /* clienti */
   const ccol = { privato: "#257de0", azienda: "#f47230", comune: "#00b894", condominio: "#f2a600", altro: "#6a4ce2", none: "#9AA3AD" };
-  out.push(H("👤 Clienti", cls.length + " in totale · " + cls.filter((c) => inP(c.created_at)).length + " nuovi nel periodo"),
+  if (own) out.push(H("👤 Clienti", cls.length + " in totale · " + cls.filter((c) => inP(c.created_at)).length + " nuovi nel periodo"),
     card(seg([...Object.keys(CLCATS), "none"].map((k) => ({ l: CLCATS[k] || "Da classificare", v: byC[k] || 0, c: ccol[k] }))), legend([...Object.keys(CLCATS), "none"].filter((k) => byC[k]).map((k) => [ccol[k], (CLCATS[k] ? CLCATS[k].replace(/^\S+ /, "") : "Da classificare")]))));
   return out;
 }
