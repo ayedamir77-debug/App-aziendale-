@@ -2460,13 +2460,39 @@ async function zipDocs(docs, folderOf, zipName, say) {
 const MB = (n) => (n / 1048576).toLocaleString("it-IT", { maximumFractionDigits: 1 }) + " MB";
 
 
+const thumbQ = { busy: 0, wait: [] };
+const thumbCache = new Map();
+function lazyThumb(el, d) {
+  if (!("IntersectionObserver" in window) || !d.file_path) return;
+  const isImg = /\.(jpe?g|png|webp)$/i.test(d.file_path) || /^image\//.test(d.mime || ""), isPdf = /pdf$/i.test(d.file_path) || /pdf/i.test(d.mime || "");
+  if (!isImg && !isPdf) return;
+  const run = async () => {
+    try {
+      if (thumbCache.has(d.id)) { el.replaceChildren(thumbCache.get(d.id).cloneNode(true)); return; }
+      const { data } = await sb.storage.from("docs").createSignedUrl(d.file_path, 300); if (!data) return;
+      let node;
+      if (isImg) { node = h("img", { src: data.signedUrl, alt: "", loading: "lazy", style: "width:100%;height:100%;object-fit:cover" }); }
+      else {
+        const L = await pdfLib(), buf = await (await fetch(data.signedUrl)).arrayBuffer(), pdf = await L.getDocument({ data: new Uint8Array(buf) }).promise, pg = await pdf.getPage(1), v0 = pg.getViewport({ scale: 1 }), v = pg.getViewport({ scale: 150 / v0.width });
+        const cv = document.createElement("canvas"); cv.width = v.width; cv.height = v.height; await pg.render({ canvasContext: cv.getContext("2d"), viewport: v }).promise;
+        cv.style.cssText = "width:100%;height:100%;object-fit:cover;background:#fff"; node = h("img", { src: cv.toDataURL("image/jpeg", 0.6), alt: "", style: "width:100%;height:100%;object-fit:cover;object-position:top" });
+      }
+      thumbCache.set(d.id, node); el.replaceChildren(node.cloneNode(true));
+    } catch { /* resta l'icona */ }
+  };
+  const pump = () => { while (thumbQ.busy < 2 && thumbQ.wait.length) { const f = thumbQ.wait.shift(); thumbQ.busy++; f().finally(() => { thumbQ.busy--; pump(); }); } };
+  const io = new IntersectionObserver((en) => { if (en.some((x) => x.isIntersecting)) { io.disconnect(); thumbQ.wait.push(run); pump(); } }, { rootMargin: "150px" });
+  io.observe(el);
+}
 function docItem(d, showJob) {
   const meta = [KINDS[d.kind], d.counterparty, d.doc_date ? D(d.doc_date).toLocaleDateString("it-IT") : fDate(d.created_at), d.doc_number ? "N. " + d.doc_number : null, d.amount != null ? money(d.amount) : null].filter(Boolean).join(" · ");
   const who = OWNER() && d.profiles?.full_name ? "Caricato da " + d.profiles.full_name : "";
   const mine = OWNER() || d.uploaded_by === S.p.id;
+  const th = h("div", { style: "flex:none;width:64px;height:84px;border-radius:8px;background:#EEF1F4;border:1px solid #DDE2E6;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:22px;cursor:pointer", onclick: () => openDoc(d) }, /pdf/i.test(d.file_path || "") ? "📄" : "🖼️");
+  lazyThumb(th, d);
   return h("div", { class: "card" },
-    h("div", { class: "row" }, h("div", { style: "min-width:0" }, h("div", { class: "title", style: "margin-top:0;word-break:break-all" }, d.title || d.file_name || "Documento"), h("div", { class: "muted" }, meta)),
-      d.kind === "fattura" ? h("span", { class: "badge " + (d.paid ? "b-done" : "b-doing") }, d.paid ? "Pagata" : "Da pagare") : null),
+    h("div", { style: "display:flex;gap:12px;align-items:flex-start" }, th, h("div", { style: "flex:1;min-width:0" }, h("div", { class: "row" }, h("div", { style: "min-width:0" }, h("div", { class: "title", style: "margin-top:0;word-break:break-all" }, d.title || d.file_name || "Documento"), h("div", { class: "muted" }, meta)),
+      d.kind === "fattura" ? h("span", { class: "badge " + (d.paid ? "b-done" : "b-doing") }, d.paid ? "Pagata" : "Da pagare") : null))),
     showJob && d.jobs?.title ? h("div", { class: "muted" }, "Lavoro: " + d.jobs.title) : null,
     Array.isArray(d.items) && d.items.length ? h("details", { style: "margin-top:8px" }, h("summary", { class: "muted" }, "Contenuto: " + d.items.length + (d.items.length === 1 ? " riga" : " righe")),
       d.items.map((it) => h("div", { style: "padding:4px 0;border-top:1px solid #EAEDEF" }, (it.qty != null ? it.qty + (it.unit ? " " + it.unit : "") + " × " : "") + it.desc))) : null,
@@ -2490,8 +2516,14 @@ async function docsView() {
   const years = [...new Set(all.map(docYear).filter(Boolean))].sort().reverse();
   if (S.docYear !== "all" && !years.includes(S.docYear)) S.docYear = "all";
   const isPdfD = (d) => /pdf$/i.test(d.file_path || d.file_name || "") || /pdf/i.test(d.mime || "");
-  const list = all.filter((d) => (S.docKind === "all" || (S.docKind === "pdf" ? isPdfD(d) : d.kind === S.docKind)) && (S.docYear === "all" || docYear(d) === S.docYear));
+  if (S.docKind === "pdf") S.docKind = "all";
+  const needFix = (d) => d.kind !== "foto" && (!d.job_id || (d.kind === "bolla" && d.amount == null));
+  const dayOf = (d) => String(d.doc_date || d.created_at || "").slice(0, 10);
+  const list = all.filter((d) => (S.docKind === "all" || d.kind === S.docKind) && (S.docYear === "all" || docYear(d) === S.docYear)
+    && (S.docFmt !== "pdf" || isPdfD(d)) && (!S.docFix || needFix(d)) && (!S.docFrom || dayOf(d) >= S.docFrom) && (!S.docTo || dayOf(d) <= S.docTo));
   const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; S.docLim = 10; render(); } }, l);
+  const fchip = (on, l, fn) => h("button", { class: "chip" + (on ? " on" : ""), onclick: () => { fn(); render(); } }, l);
+  const nFix = all.filter(needFix).length;
   const unpaid = all.filter((d) => d.kind === "fattura" && !d.paid && d.amount != null).reduce((s, d) => s + Number(d.amount), 0);
   let used = null;
   if (OWNER()) { try { used = chk(await sb.from("documents").select("size")).reduce((s, d) => s + Number(d.size || 0), 0); } catch { /* non essenziale */ } }
@@ -2501,7 +2533,7 @@ async function docsView() {
     const cn = (d.jobs && d.jobs.clients && d.jobs.clients.name) || (d.jobs ? "Senza cliente" : "Senza lavoro"), jt = d.jobs ? d.jobs.title : "Documenti non collegati a un lavoro";
     ((byCl[cn] = byCl[cn] || {})[jt] = byCl[cn][jt] || []).push(d);
   }
-  const opened = !!term || S.docKind !== "all";
+  const opened = !!term || S.docKind !== "all" || S.docFmt === "pdf" || !!S.docFix || !!S.docFrom || !!S.docTo;
   const jobBox = (jt, docs) => h("details", { class: "dgrp", open: opened || undefined, style: "margin:8px 0 0 10px" },
     h("summary", { style: "font-weight:600;padding:6px 0" }, "🔧 " + jt + " (" + docs.length + ")"), docs.map((d) => docItem(d, false)));
   const groups = Object.keys(byCl).sort((a, b) => (/^Senza/.test(a) - /^Senza/.test(b)) || a.localeCompare(b)).map((cn) => {
@@ -2535,7 +2567,15 @@ async function docsView() {
     OWNER() && unpaid > 0 ? h("div", { class: "note", style: "margin:0 0 12px" }, "Fatture da pagare: " + money(unpaid)) : null,
     h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "docForm" }) }, "+ Scansiona o carica documento"),
     search,
-    h("div", { class: "chips", style: "margin-top:12px" }, chip("all", "Tutti"), chip("pdf", "📄 PDF scansionati (" + all.filter(isPdfD).length + ")"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
+    h("div", { class: "muted", style: "margin:12px 0 4px;font-size:13px" }, "Formato"),
+    h("div", { class: "chips" }, fchip(S.docFmt !== "pdf" && !S.docFix, "Tutti i file", () => { S.docFmt = "all"; S.docFix = false; S.docLim = 10; }), fchip(S.docFmt === "pdf", "📄 PDF scansionati (" + all.filter(isPdfD).length + ")", () => { S.docFmt = S.docFmt === "pdf" ? "all" : "pdf"; }), fchip(!!S.docFix, "⚠️ Da sistemare (" + nFix + ")", () => { S.docFix = !S.docFix; })),
+    h("div", { class: "muted", style: "margin:8px 0 4px;font-size:13px" }, "Tipo"),
+    h("div", { class: "chips" }, chip("all", "Tutti i tipi"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
+    h("div", { class: "muted", style: "margin:8px 0 4px;font-size:13px" }, "Data"),
+    h("div", { style: "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px" },
+      h("input", { type: "date", "aria-label": "Dal", value: S.docFrom || "", onchange: (e) => { S.docFrom = e.target.value; render(); } }),
+      h("input", { type: "date", "aria-label": "Al", value: S.docTo || "", onchange: (e) => { S.docTo = e.target.value; render(); } })),
+    S.docFrom || S.docTo ? h("button", { class: "ghost", style: "margin:-4px 0 10px", onclick: () => { S.docFrom = ""; S.docTo = ""; render(); } }, "✕ Togli il filtro data") : null,
     years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
     tools,
     list.length ? groups : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento.")
