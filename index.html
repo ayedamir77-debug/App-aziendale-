@@ -2520,7 +2520,7 @@ async function docsView() {
   const needFix = (d) => d.kind !== "foto" && (!d.job_id || (d.kind === "bolla" && d.amount == null));
   const dayOf = (d) => String(d.doc_date || d.created_at || "").slice(0, 10);
   const list = all.filter((d) => (S.docKind === "all" || d.kind === S.docKind) && (S.docYear === "all" || docYear(d) === S.docYear)
-    && (S.docFmt !== "pdf" || isPdfD(d)) && (!S.docFix || needFix(d)) && (!S.docFrom || dayOf(d) >= S.docFrom) && (!S.docTo || dayOf(d) <= S.docTo));
+    && (!S.docFix || needFix(d)) && (!S.docFrom || dayOf(d) >= S.docFrom) && (!S.docTo || dayOf(d) <= S.docTo));
   const chip = (k, l) => h("button", { class: "chip" + (S.docKind === k ? " on" : ""), onclick: () => { S.docKind = k; S.docLim = 10; render(); } }, l);
   const fchip = (on, l, fn) => h("button", { class: "chip" + (on ? " on" : ""), onclick: () => { fn(); render(); } }, l);
   const nFix = all.filter(needFix).length;
@@ -2533,7 +2533,7 @@ async function docsView() {
     const cn = (d.jobs && d.jobs.clients && d.jobs.clients.name) || (d.jobs ? "Senza cliente" : "Senza lavoro"), jt = d.jobs ? d.jobs.title : "Documenti non collegati a un lavoro";
     ((byCl[cn] = byCl[cn] || {})[jt] = byCl[cn][jt] || []).push(d);
   }
-  const opened = !!term || S.docKind !== "all" || S.docFmt === "pdf" || !!S.docFix || !!S.docFrom || !!S.docTo;
+  const opened = !!term || S.docKind !== "all" || !!S.docFix || !!S.docFrom || !!S.docTo;
   const jobBox = (jt, docs) => h("details", { class: "dgrp", open: opened || undefined, style: "margin:8px 0 0 10px" },
     h("summary", { style: "font-weight:600;padding:6px 0" }, "🔧 " + jt + " (" + docs.length + ")"), docs.map((d) => docItem(d, false)));
   const groups = Object.keys(byCl).sort((a, b) => (/^Senza/.test(a) - /^Senza/.test(b)) || a.localeCompare(b)).map((cn) => {
@@ -2567,10 +2567,8 @@ async function docsView() {
     OWNER() && unpaid > 0 ? h("div", { class: "note", style: "margin:0 0 12px" }, "Fatture da pagare: " + money(unpaid)) : null,
     h("button", { class: "primary", style: "margin:0 0 14px", onclick: () => go({ t: "docForm" }) }, "+ Scansiona o carica documento"),
     search,
-    h("div", { class: "muted", style: "margin:12px 0 4px;font-size:13px" }, "Formato"),
-    h("div", { class: "chips" }, fchip(S.docFmt !== "pdf" && !S.docFix, "Tutti i file", () => { S.docFmt = "all"; S.docFix = false; S.docLim = 10; }), fchip(S.docFmt === "pdf", "📄 PDF scansionati (" + all.filter(isPdfD).length + ")", () => { S.docFmt = S.docFmt === "pdf" ? "all" : "pdf"; }), fchip(!!S.docFix, "⚠️ Da sistemare (" + nFix + ")", () => { S.docFix = !S.docFix; })),
-    h("div", { class: "muted", style: "margin:8px 0 4px;font-size:13px" }, "Tipo"),
-    h("div", { class: "chips" }, chip("all", "Tutti i tipi"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
+    h("div", { class: "muted", style: "margin:12px 0 4px;font-size:13px" }, "Tipo"),
+    h("div", { class: "chips" }, chip("all", "Tutti"), fchip(!!S.docFix, "⚠️ Da sistemare (" + nFix + ")", () => { S.docFix = !S.docFix; }), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
     h("div", { class: "muted", style: "margin:8px 0 4px;font-size:13px" }, "Data"),
     h("div", { style: "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-bottom:12px" },
       h("input", { type: "date", "aria-label": "Dal", value: S.docFrom || "", onchange: (e) => { S.docFrom = e.target.value; render(); } }),
