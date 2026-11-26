@@ -612,7 +612,7 @@ async function reportsView() {
   if (rq) {
     const all0 = chk(await sb.from("reports").select(sel).order("day", { ascending: false }).order("created_at", { ascending: false }).limit(800));
     list = all0.filter((r) => !(r.jobs && r.jobs.status === "void")
-      && (cat === "all" || (cat === "urg" ? isUrg(r) : cat === "vari" ? isVari(r) : (r.job_id && !isUrg(r) && !isVari(r))))
+      && (cat === "all" || (cat === "urg" ? isUrg(r) : (r.job_id && !isUrg(r))))
       && (!fcli || (r.jobs && r.jobs.clients && r.jobs.clients.name === fcli))
       && (!fwho || r.user_id === fwho || (r.with_ids || []).includes(fwho))
       && (!rq0 || ((r.jobs ? r.jobs.title : "") + " " + (r.jobs && r.jobs.clients ? r.jobs.clients.name : "") + " " + (r.summary || "")).toLowerCase().includes(rq0))).slice(0, S.repLim || 10);
@@ -653,7 +653,7 @@ async function reportsView() {
     h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "reportForm" }) }, "+ Nuovo rapportino"),
     h("p", { class: "muted", style: "margin-top:10px" }, "Visibili a tutti. Compilarlo è facoltativo: l'app non manda avvisi a chi non lo fa."),
     h("input", { type: "search", placeholder: "Cerca per cliente o lavoro…", value: S.repQ || "", style: "margin-top:12px", enterkeyhint: "search", onkeydown: (e) => { if (e.key === "Enter") { S.repQ = e.target.value; S.repLim = 10; render(); } }, onsearch: (e) => { if (!e.target.value && S.repQ) { S.repQ = ""; render(); } } }),
-    h("div", { class: "chips", style: "margin:10px 0 6px" }, [["all", "Tutti"], ["lav", "🔧 Lavori"], ["urg", "🚨 Urgenze"], ["vari", "🧰 Interventi vari"]].map(([k, l]) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { S.repCat = k; S.repLim = 10; render(); } }, l))),
+    h("div", { class: "chips", style: "margin:10px 0 6px" }, [["all", "Tutti"], ["lav", "🔧 Lavori"], ["urg", "🚨 Urgenze"]].map(([k, l]) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { S.repCat = k; S.repLim = 10; render(); } }, l))),
     h("div", { class: "row", style: "gap:8px;margin-bottom:6px" },
       h("button", { class: "secondary" + (fcli ? " on" : ""), style: "flex:1;margin:0;text-align:left" + (fcli ? ";border-color:#0B1F5C;background:#E8ECF8" : ""), onclick: () => listPickOv("Scegli il cliente", clAll.map((c) => ({ v: c.name, l: c.name })), fcli, (v) => { S.repCli = v; S.repLim = 10; render(); }) }, "👤 " + (fcli || "Tutti i clienti")),
       h("select", { style: "flex:1;margin:0", "aria-label": "Chi", onchange: (e) => { S.repWho = e.target.value; S.repLim = 10; render(); } }, h("option", { value: "" }, "👷 Tutti"), tm0.map((t) => h("option", { value: t.id, selected: fwho === t.id }, t.id === S.p.id ? "Io" : t.full_name)))),
