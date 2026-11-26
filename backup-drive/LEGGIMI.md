@@ -4,7 +4,9 @@ Ogni notte (03:30) GitHub Actions salva su Drive, nella cartella scelta:
 - `backup-light-project-AAAA-MM-GG.json.gz`: tutti i dati (ultimi 30)
 - `db-public-AAAA-MM-GG.sql.gz`: database completo: tabelle, regole (RLS), funzioni, dati (ultimi 30)
 - `db-sistema-utenti-AAAA-MM-GG.sql.gz`: utenti (auth) e archivio (storage), se riesce (ultimi 30)
-- cartella `files/`: tutte le foto e i documenti (copia incrementale, non cancella mai)
+- cartella `Clienti/<Cliente>/<Lavoro>/` con dentro `Rapportini/` (un file di testo per rapportino, con ore, materiale e commenti) e `Foto e documenti/` (foto, bolle, fatture, con data e titolo nel nome)
+- `Documenti generali/` (documenti non legati a un lavoro), `Libreria tecnica/`, `Altri file/`
+- le foto e i documenti si copiano una volta sola e non si cancellano mai; i rapportini si aggiornano se li modifichi
 
 Il codice dell'app e delle funzioni è già in questo repository GitHub.
 Non salvabili (si rifanno a mano): i segreti di Supabase (GEMINI_API_KEY, GEMINI_MODEL).
