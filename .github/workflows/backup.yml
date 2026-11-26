@@ -6,11 +6,24 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with: { node-version: 20 }
-      - run: node backup-drive/backup.mjs
+      - name: Installa strumenti database
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y postgresql-client-17
+      - name: Copia della struttura e dei dati del database
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -o pipefail
+          pg_dump "$SUPABASE_DB_URL" --schema=public --no-owner --no-privileges | gzip > /tmp/db-public.sql.gz
+          pg_dump "$SUPABASE_DB_URL" --schema=auth --schema=storage --no-owner --no-privileges | gzip > /tmp/db-sistema.sql.gz || { echo "Copia di auth/storage non riuscita (non bloccante)"; rm -f /tmp/db-sistema.sql.gz; }
+      - name: Carica tutto su Drive
+        run: node backup-drive/backup.mjs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
