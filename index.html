@@ -2255,7 +2255,7 @@ function docItem(d, showJob) {
 const docYear = (d) => String(d.doc_date || d.created_at || "").slice(0, 4);
 async function docsView() {
   const term = String(S.dq || "").replace(/[,()"\\*%]/g, " ").replace(/\s+/g, " ").trim();
-  let q = sb.from("documents").select("id,kind,title,file_name,file_path,mime,size,amount,doc_date,paid,counterparty,doc_number,created_at,uploaded_by,job_id,items,jobs(title),profiles(full_name)")
+  let q = sb.from("documents").select("id,kind,title,file_name,file_path,mime,size,amount,doc_date,paid,counterparty,doc_number,created_at,uploaded_by,job_id,items,jobs(title,client_id,clients(name)),profiles(full_name)")
     .order("doc_date", { ascending: false, nullsFirst: false }).order("created_at", { ascending: false }).limit(1000);
   if (term) q = q.or(["file_name", "title", "counterparty", "doc_number", "ocr_text"].map((c) => c + '.ilike."*' + term + '*"').join(","));
   const all = chk(await q);
@@ -2266,6 +2266,21 @@ async function docsView() {
   const unpaid = all.filter((d) => d.kind === "fattura" && !d.paid && d.amount != null).reduce((s, d) => s + Number(d.amount), 0);
   let used = null;
   if (OWNER()) { try { used = chk(await sb.from("documents").select("size")).reduce((s, d) => s + Number(d.size || 0), 0); } catch { /* non essenziale */ } }
+  /* ordine: Cliente > Lavoro > documenti */
+  const byCl = {};
+  for (const d of list) {
+    const cn = (d.jobs && d.jobs.clients && d.jobs.clients.name) || (d.jobs ? "Senza cliente" : "Senza lavoro"), jt = d.jobs ? d.jobs.title : "Documenti non collegati a un lavoro";
+    ((byCl[cn] = byCl[cn] || {})[jt] = byCl[cn][jt] || []).push(d);
+  }
+  const opened = !!term || S.docKind !== "all";
+  const jobBox = (jt, docs) => h("details", { class: "dgrp", open: opened || undefined, style: "margin:8px 0 0 10px" },
+    h("summary", { style: "font-weight:600;padding:6px 0" }, "🔧 " + jt + " (" + docs.length + ")"), docs.map((d) => docItem(d, false)));
+  const groups = Object.keys(byCl).sort((a, b) => (/^Senza/.test(a) - /^Senza/.test(b)) || a.localeCompare(b)).map((cn) => {
+    const jobs = byCl[cn], n = Object.values(jobs).reduce((x, a) => x + a.length, 0);
+    return h("details", { class: "card", open: opened || undefined, style: "padding:8px 14px" },
+      h("summary", { style: "font-weight:700;font-size:17px;padding:8px 0" }, (/^Senza/.test(cn) ? "📂 " : "👤 ") + cn + " (" + n + ")"),
+      Object.keys(jobs).sort((a, b) => a.localeCompare(b)).map((jt) => jobBox(jt, jobs[jt])));
+  });
   const status = h("p", { class: "muted" });
   const search = h("input", { type: "search", id: "dq", placeholder: "Cerca: nome, cliente, numero, testo…", value: S.dq || "", enterkeyhint: "search", onkeydown: (e) => { if (e.key === "Enter") { S.dq = e.target.value; render(); } }, onchange: (e) => { S.dq = e.target.value; render(); } });
   const tools = OWNER() ? h("div", { class: "card" },
@@ -2294,8 +2309,7 @@ async function docsView() {
     h("div", { class: "chips", style: "margin-top:12px" }, chip("all", "Tutti"), Object.entries(KINDS).map(([k, l]) => chip(k, l))),
     years.length > 1 ? h("select", { "aria-label": "Anno", style: "margin-bottom:12px", onchange: (e) => { S.docYear = e.target.value; render(); } }, h("option", { value: "all" }, "Tutti gli anni"), years.map((y) => h("option", { value: y, selected: y === S.docYear }, y))) : null,
     tools,
-    list.length ? list.slice(0, S.docLim || 10).map((d) => docItem(d, true)) : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento."),
-    list.length > (S.docLim || 10) ? h("button", { class: "secondary", style: "width:100%", onclick: () => { S.docLim = (S.docLim || 10) + 10; render(); } }, "Mostra altri (" + (list.length - (S.docLim || 10)) + ")") : null
+    list.length ? groups : h("p", {}, term ? "Nessun documento trovato." : "Nessun documento.")
   ];
 }
 async function docEditForm(id) {
