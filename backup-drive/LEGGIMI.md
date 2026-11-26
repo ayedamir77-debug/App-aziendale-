@@ -21,3 +21,6 @@ Un nuovo progetto Supabase: importare `db-public-*.sql.gz` (gunzip, poi psql), r
 Aggiungere i segreti `GOOGLE_REFRESH_TOKEN_2` e `DRIVE_FOLDER_ID_2` (e per il terzo `_3`). Se presenti, il backup viene caricato anche lì.
 Client ID/secret possono essere gli stessi; per usarne di diversi aggiungere `GOOGLE_CLIENT_ID_2` e `GOOGLE_CLIENT_SECRET_2`.
 Il workflow li legge: vedi `.github/workflows/backup.yml`.
+
+## Tasto "Backup su Drive adesso" nell'app
+Funzione Supabase `backup-now` (cartella supabase/functions/backup-now). Serve un segreto su Supabase: `GITHUB_TOKEN`, un token GitHub "fine-grained" solo per questo repository con permesso Actions: Read and write. Solo il titolare può usarla. Il tasto è in Menu → Backup.

@@ -898,7 +898,23 @@ async function backupView() {
     } catch (e) { alert("Backup non riuscito: " + (e.message || e)); }
     btn.disabled = false; btn.textContent = "💾 Crea backup e salva";
   };
+  const dst = h("p", { class: "muted", style: "margin:8px 0 0" }, "Salva tutto su Google Drive: dati, rapportini, foto e documenti, divisi per cliente e lavoro."), dbtn = h("button", { class: "primary", style: "margin-top:8px" }, "☁️ Fai il backup su Drive adesso");
+  const fnCall = async (task) => { const { data, error } = await sb.functions.invoke("backup-now", { body: { task } }); if (error || (data && data.error)) { let m = data && data.error; if (!m && error && error.context && error.context.json) { try { m = (await error.context.json()).error; } catch { /* nessun dettaglio */ } } throw new Error(m || "funzione non ancora attivata"); } return data; };
+  async function watch(since) {
+    for (let i = 0; i < 40; i++) {
+      await new Promise((r) => setTimeout(r, 15000));
+      if (!dst.isConnected) return;
+      try { const r = await fnCall("status"); if (r.status === "completed" && new Date(r.updated) >= since) { dst.textContent = r.conclusion === "success" ? "✅ Backup su Drive completato alle " + fTime(r.updated) + "." : "⚠️ Il backup è finito con un errore: controlla su GitHub (Actions)."; dbtn.disabled = false; dbtn.textContent = "☁️ Fai il backup su Drive adesso"; return; } dst.textContent = "⏳ Backup in corso… di solito servono pochi minuti. Puoi uscire da questa pagina."; } catch { /* riprovo */ }
+    }
+    dst.textContent = "Sta ancora lavorando: controlla più tardi su Drive."; dbtn.disabled = false; dbtn.textContent = "☁️ Fai il backup su Drive adesso";
+  }
+  dbtn.onclick = async () => {
+    dbtn.disabled = true; dbtn.textContent = "Avvio…"; const since = new Date(Date.now() - 20000);
+    try { await fnCall("run"); dst.textContent = "⏳ Backup avviato. Di solito servono pochi minuti."; dbtn.textContent = "In corso…"; watch(since); }
+    catch (e) { dst.textContent = "Non è partito: " + (e.message || e); dbtn.disabled = false; dbtn.textContent = "☁️ Fai il backup su Drive adesso"; }
+  };
   return [h("h1", {}, "💾 Backup"),
+    h("div", { class: "card" }, h("div", { class: "title", style: "margin-top:0" }, "☁️ Su Google Drive"), dbtn, dst),
     h("div", { class: "card" }, h("p", { style: "margin-top:0" }, "Crea un file con tutti i dati: clienti, lavori, rapportini, ore, impianti, fatture, spese, mezzi, chat."), btn, st,
       h("p", { class: "muted" }, "Quando si apre il menu di condivisione scegli Drive e poi una cartella. Se non si apre, il file va nei Download.")),
     h("p", { class: "muted" }, "Le foto e i PDF non sono dentro il file: si conservano con il backup dell'archivio (NAS). Fai un backup almeno una volta a settimana.")];
