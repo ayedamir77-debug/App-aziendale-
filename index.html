@@ -507,9 +507,9 @@ async function reportsView() {
   const jm = jobIds.length ? chk(await sb.from("job_materials").select("job_id,description,quantity,unit").in("job_id", jobIds)) : [];
   const byDay = {}; for (const r of list) (byDay[r.day] = byDay[r.day] || []).push(r);
   const card = (r) => {
-    const mats = Array.isArray(r.materials) ? r.materials : [], jobMats = jm.filter((x) => x.job_id === r.job_id);
+    const mats = (Array.isArray(r.materials) ? r.materials : []).filter((m) => m.src !== "recuperato"), recov = (Array.isArray(r.materials) ? r.materials : []).filter((m) => m.src === "recuperato"), jobMats = jm.filter((x) => x.job_id === r.job_id);
     const cmp = compareMats(mats, jobMats);
-    const allRep = list.filter((x) => x.job_id === r.job_id).flatMap((x) => (Array.isArray(x.materials) ? x.materials : []));
+    const allRep = list.filter((x) => x.job_id === r.job_id).flatMap((x) => (Array.isArray(x.materials) ? x.materials : []).filter((m) => m.src !== "recuperato"));
     const unsigned = r.job_id ? jobMats.filter((b) => !compareMats(allRep, [b])[0] || !compareMats(allRep, [b])[0].hit) : [];
     const mine = r.user_id === S.p.id;
     return h("div", { class: "card" },
@@ -523,6 +523,7 @@ async function reportsView() {
         else if (hit) { const q = numOrNull(hit.quantity); tag = "✅ in bolla" + (q != null && m.qty != null && q !== Number(m.qty) ? " (in bolla: " + q + ")" : ""); } else tag = "⚠️ comprato, bolla non trovata";
         return h("div", { class: "row", style: "padding:3px 0" }, h("span", {}, m.desc + (m.qty != null ? " · " + m.qty + " " + (m.unit || "") : "")), h("span", { class: "muted", style: "text-align:right" }, tag));
       })) : null,
+      recov.length ? h("div", { style: "margin-top:6px" }, h("div", { class: "muted" }, "♻️ Recuperato (in magazzino)"), recov.map((m) => h("div", { style: "padding:3px 0" }, m.desc + (m.qty != null ? " · " + m.qty + " " + (m.unit || "") : "")))) : null,
       unsigned.length ? h("div", { class: "note", style: "margin-top:8px" }, "In bolla ma non segnato nei rapportini: " + unsigned.map((b) => b.description).join(", ")) : null,
       commentBlock("report", r.id, cm[r.id] || []),
       mine || OWNER() ? h("div", { class: "btns" }, mine ? h("button", { class: "secondary", onclick: () => go({ t: "reportForm", id: r.id }) }, "Modifica") : null,
@@ -573,7 +574,7 @@ async function reportForm(sub) {
         h("input", { type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità", value: m.qty != null ? m.qty : "", oninput: (e) => { m.qty = numOrNull(e.target.value); stash(); } }),
         h("input", { placeholder: "Unità", value: m.unit || "", oninput: (e) => { m.unit = e.target.value; stash(); } })),
       h("div", { class: "sp", style: "margin-top:8px" },
-        h("select", { onchange: (e) => { m.src = e.target.value; stash(); } }, [["nostro", "Nostro (magazzino)"], ["comprato", "Comprato"]].map(([k, l]) => h("option", { value: k, selected: (m.src || "nostro") === k }, l))),
+        h("select", { onchange: (e) => { m.src = e.target.value; stash(); } }, [["nostro", "Nostro (magazzino)"], ["comprato", "Comprato"], ["recuperato", "♻️ Recuperato → va in magazzino"]].map(([k, l]) => h("option", { value: k, selected: (m.src || "nostro") === k }, l))),
         h("button", { class: "deny", style: "height:48px;flex:0 0 52px", "aria-label": "Rimuovi", onclick: () => { mats.splice(i, 1); drawMats(); stash(); } }, "✕")))));
   };
   const stash = () => { if (rep) return; sk("rep_draft", JSON.stringify({ day: $("r_day") && $("r_day").value, job_id: $("r_job") && $("r_job").value, summary: $("r_sum") && $("r_sum").value, with_ids: [...withSet], materials: mats })); };
@@ -615,7 +616,7 @@ async function reportForm(sub) {
           if (co().ai_enabled) {
             const r = await aiCall({ task: "report", text: raw, team: tm.map((t) => t.full_name).join(", ") });
             if (r.summary) $("r_sum").value = String(r.summary);
-            if (Array.isArray(r.materials) && r.materials.length) { const have = new Set(mats.map((x) => (x.desc || "").toLowerCase())); for (const x of r.materials) if (x && x.desc && !have.has(String(x.desc).toLowerCase())) mats.push({ desc: String(x.desc), qty: numOrNull(x.qty), unit: x.unit || "", src: x.src === "comprato" ? "comprato" : "nostro" }); drawMats(); }
+            if (Array.isArray(r.materials) && r.materials.length) { const have = new Set(mats.map((x) => (x.desc || "").toLowerCase())); for (const x of r.materials) if (x && x.desc && !have.has(String(x.desc).toLowerCase())) mats.push({ desc: String(x.desc), qty: numOrNull(x.qty), unit: x.unit || "", src: ["comprato", "recuperato"].includes(x.src) ? x.src : "nostro" }); drawMats(); }
             if (Array.isArray(r.with)) for (const nm of r.with) { const t = tm.find((x) => normT(x.full_name) === normT(nm) || normT(x.full_name).includes(normT(nm))); if (t && t.id !== S.p.id) withSet.add(t.id); }
             stash(); m.st.textContent = "Fatto. Controlla e correggi se serve."; if (!rep) render();
           } else { $("r_sum").value = tidyText(raw) || raw; stash(); m.st.textContent = "Messo in elenco. Con l'assistente IA attivo mette in ordine meglio e trova anche materiale e colleghi."; }
@@ -632,9 +633,19 @@ async function reportForm(sub) {
       e.target.disabled = true;
       const ok = await attempt(async () => {
         const day = $("r_day").value; if (!day) throw new Error("Scegli il giorno");
-        const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro" }));
+        const summary = $("r_sum").value.trim(), cm = mats.filter((m) => (m.desc || "").trim()).map((m) => ({ desc: m.desc.trim(), qty: numOrNull(m.qty), unit: (m.unit || "").trim() || null, src: m.src || "nostro", stocked: m.stocked || undefined }));
         if (!summary && !cm.length) throw new Error("Scrivi cosa hai fatto o il materiale usato");
         let jobId = $("r_job").value || null;
+        /* materiale recuperato: lo metto nel magazzino (una sola volta) */
+        for (const m of mats) {
+          if (m.src !== "recuperato" || m.stocked || !(m.desc || "").trim()) continue;
+          const d = m.desc.trim(), q = numOrNull(m.qty) != null ? Number(m.qty) : 1;
+          const ex = chk(await sb.from("stock").select("id,quantity,description").ilike("description", d.replace(/[%_]/g, "\\$&"))).find((x) => x.description.trim().toLowerCase() === d.toLowerCase());
+          if (ex) chk(await sb.from("stock").update({ quantity: Number(ex.quantity || 0) + q, updated_at: new Date().toISOString() }).eq("id", ex.id));
+          else chk(await sb.from("stock").insert({ company_id: S.p.company_id, description: d, quantity: q, unit: (m.unit || "").trim() || null, location: "Recuperato" }));
+          m.stocked = true;
+        }
+        for (const c of cm) { const o = mats.find((m) => (m.desc || "").trim() === c.desc && m.src === c.src); if (o && o.stocked) c.stocked = true; }
         const row = { day, job_id: jobId, summary: summary || null, with_ids: [...withSet], materials: cm, minutes };
         if (rep) chk(await sb.from("reports").update(row).eq("id", rep.id)); else chk(await sb.from("reports").insert({ ...row, company_id: S.p.company_id, user_id: S.p.id }));
         sk("rep_draft", "");
@@ -1219,7 +1230,7 @@ async function jobSummaryView(sub) {
   const mm = {};
   const addM = (desc, qty, unit) => { if (!desc) return; const k = desc.trim().toLowerCase() + "|" + (unit || "").trim().toLowerCase(), e = mm[k] = mm[k] || { desc: desc.trim(), unit: (unit || "").trim(), qty: 0, has: false }; if (qty != null && qty !== "") { e.qty += Number(qty); e.has = true; } };
   for (const m of mats) addM(m.description, m.quantity, m.unit);
-  for (const r of reps) for (const m of (Array.isArray(r.materials) ? r.materials : [])) addM(m.desc, m.qty, m.unit);
+  for (const r of reps) for (const m of (Array.isArray(r.materials) ? r.materials : []).filter((x) => x.src !== "recuperato")) addM(m.desc, m.qty, m.unit);
   const matList = Object.values(mm).sort((a, b) => a.desc.localeCompare(b.desc));
   /* documenti */
   const kinds = { foto: "📷 Foto", bolla: "🧾 Bolle", fattura: "📄 Fatture", scontrino: "🧾 Scontrini", altro: "📎 Altri documenti" };
@@ -1994,7 +2005,7 @@ async function clientView(id) {
       const mats = {}, per = {}; let tot = 0;
       for (const r of rr) {
         if (r.minutes != null) { tot += r.minutes; for (const u of ((r.with_ids && r.with_ids.length) ? r.with_ids : [r.user_id])) per[u] = (per[u] || 0) + r.minutes; }
-        for (const m of (Array.isArray(r.materials) ? r.materials : [])) {
+        for (const m of (Array.isArray(r.materials) ? r.materials : []).filter((x) => x.src !== "recuperato")) {
           const k = (m.desc || "").trim().toLowerCase() + "|" + (m.unit || "").trim().toLowerCase(); if (!m.desc) continue;
           const e = mats[k] = mats[k] || { desc: m.desc.trim(), unit: (m.unit || "").trim(), qty: 0, hasQty: false }; if (m.qty != null) { e.qty += Number(m.qty); e.hasQty = true; }
         }
