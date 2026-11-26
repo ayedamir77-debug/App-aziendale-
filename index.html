@@ -485,86 +485,162 @@ function moreView() {
 }
 
 /* ---------- andamento (resoconto che si aggiorna da solo) ---------- */
+const TR_COL = ["#257de0", "#f47230", "#00b894", "#f2a600", "#ee7fac", "#6a4ce2", "#008a17", "#ec4647"];
+function trTip(el, text) {
+  el.title = text; el.style.cursor = "pointer";
+  el.addEventListener("click", (e) => {
+    e.stopPropagation(); let t = document.getElementById("trtip"); if (!t) { t = document.createElement("div"); t.id = "trtip"; t.style.cssText = "position:fixed;z-index:70;background:#14202B;color:#fff;padding:6px 10px;border-radius:8px;font-size:13px;pointer-events:none;max-width:240px"; document.body.append(t); }
+    t.textContent = text; t.style.display = "block"; const x = Math.min(window.innerWidth - 250, Math.max(8, e.clientX - 60)); t.style.left = x + "px"; t.style.top = Math.max(8, e.clientY - 46) + "px";
+    clearTimeout(trTip.t); trTip.t = setTimeout(() => { t.style.display = "none"; }, 2200);
+  });
+}
 async function trendView() {
   await loadTeam();
-  const P = S.trendP || "m", n = new Date();
-  const rng = { m: [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 1), "Questo mese"], pm: [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 1), "Mese scorso"], y: [new Date(n.getFullYear(), 0, 1), new Date(n.getFullYear() + 1, 0, 1), "Quest'anno"], all: [new Date(2000, 0, 1), new Date(2100, 0, 1), "Da sempre"] };
-  const [a0, b0] = rng[P], A = isoDay(a0), B = isoDay(b0), inP = (x) => !!x && String(x).slice(0, 10) >= A && String(x).slice(0, 10) < B;
-  const own = OWNER();
-  const [jobs, reps, cls, docs, inv, exps] = await Promise.all([
+  const P = S.trendP || "m", n = new Date(), own = OWNER();
+  const rng = { m: [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 1), "Questo mese", new Date(n.getFullYear(), n.getMonth() - 1, 1), "mese scorso"],
+    pm: [new Date(n.getFullYear(), n.getMonth() - 1, 1), new Date(n.getFullYear(), n.getMonth(), 1), "Mese scorso", new Date(n.getFullYear(), n.getMonth() - 2, 1), "due mesi fa"],
+    y: [new Date(n.getFullYear(), 0, 1), new Date(n.getFullYear() + 1, 0, 1), "Quest'anno", new Date(n.getFullYear() - 1, 0, 1), "anno scorso"],
+    all: [new Date(2000, 0, 1), new Date(2100, 0, 1), "Da sempre", null, ""] };
+  const [a0, b0, plabel, pa0, pname] = rng[P], A = isoDay(a0), B = isoDay(b0), inP = (x) => !!x && String(x).slice(0, 10) >= A && String(x).slice(0, 10) < B;
+  const PA = pa0 ? isoDay(pa0) : null;
+  const [jobs, reps, prev, cls, docs, inv, exps] = await Promise.all([
     sb.from("jobs").select("id,title,status,description,created_at,clients(name)").limit(1500).then(chk),
     sb.from("reports").select("day,user_id,with_ids,minutes,materials,job_id").gte("day", A).lt("day", B).limit(3000).then(chk),
+    PA ? sb.from("reports").select("day,user_id,with_ids,minutes").gte("day", PA).lt("day", A).limit(3000).then(chk).catch(() => []) : [],
     sb.from("clients").select("id,category,created_at").limit(1500).then(chk),
     sb.from("documents").select("kind,amount,created_at,doc_date,job_id").limit(3000).then(chk).catch(() => []),
     own ? sb.from("invoices").select("*").limit(3000).then(chk).catch(() => []) : [],
     own ? sb.from("expenses").select("*").limit(3000).then(chk).catch(() => []) : []
   ]);
+  const people = await team0(), colOf = {}; people.forEach((u, i) => { colOf[u.id] = TR_COL[i % TR_COL.length]; });
+  const nameP = (u) => (u === S.p.id ? "Io" : who(u)) || "—";
   const jt = {}; for (const j of jobs) jt[j.id] = j.title;
-  const sec = (t, ...c) => [h("h2", {}, t), h("div", { class: "card" }, ...c)];
-  const line = (l, v, b) => h("div", { class: "row", style: "padding:4px 0" }, h("span", { class: b ? "" : "muted" }, l), h("strong", {}, v));
-  const sub = (t) => h("div", { class: "muted", style: "margin:10px 0 2px" }, t);
-  const chip = (k, l) => h("button", { class: "chip" + (P === k ? " on" : ""), onclick: () => { S.trendP = k; render(); } }, l);
-  /* lavori */
-  const open = jobs.filter((j) => j.status !== "done" && j.status !== "void"), urg = (j) => /^\s*🚨/.test(j.title || "");
-  const toBack = open.filter((j) => /↩️ DA TORNARE/.test(j.description || ""));
-  const newJ = jobs.filter((j) => inP(j.created_at) && j.status !== "void");
-  /* ore */
-  let tot = 0; const per = {}, perJob = {}, bucket = {};
-  for (const r of reps) if (r.minutes != null) {
-    tot += r.minutes; for (const u of ((r.with_ids && r.with_ids.length) ? r.with_ids : [r.user_id])) per[u] = (per[u] || 0) + r.minutes;
-    if (r.job_id) perJob[r.job_id] = (perJob[r.job_id] || 0) + r.minutes;
-    const k = (P === "y" || P === "all") ? String(r.day).slice(0, 7) : (() => { const d = new Date(r.day + "T12:00"); const dd = new Date(d); dd.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return isoDay(dd); })();
-    bucket[k] = (bucket[k] || 0) + r.minutes;
-  }
+  /* ---- calcoli ---- */
+  const persOf = (r) => ((r.with_ids && r.with_ids.length) ? r.with_ids : [r.user_id]);
+  const mins = (arr) => arr.reduce((x, r) => x + (r.minutes || 0), 0);
+  const tot = mins(reps), totPrev = mins(prev);
+  const per = {};
+  for (const r of reps) for (const u of persOf(r)) { const e = per[u] = per[u] || { m: 0, days: new Set(), reps: 0, jobs: new Set() }; if (r.minutes != null) { e.m += r.minutes; e.days.add(r.day); } if (r.user_id === u) e.reps++; if (r.job_id) e.jobs.add(r.job_id); }
+  const perPrev = {}; for (const r of prev) for (const u of persOf(r)) perPrev[u] = (perPrev[u] || 0) + (r.minutes || 0);
+  const wide = P === "y" || P === "all";
+  const bkey = (d) => { const x = String(d).slice(0, 10); if (wide) return x.slice(0, 7); const dt = new Date(x + "T12:00"); dt.setDate(dt.getDate() - ((dt.getDay() + 6) % 7)); return isoDay(dt); };
+  const blab = (k) => wide ? new Date(k + "-15").toLocaleDateString("it-IT", { month: "short", year: P === "all" ? "2-digit" : undefined }) : fDay(k).slice(0, 5);
+  const bk = {}; for (const r of reps) if (r.minutes != null) for (const u of persOf(r)) { const k = bkey(r.day); (bk[k] = bk[k] || {})[u] = ((bk[k] || {})[u] || 0) + r.minutes; }
+  const bkeys = Object.keys(bk).sort().slice(-12);
   const days = new Set(reps.filter((r) => r.minutes != null).map((r) => r.day)).size;
-  const bk = Object.keys(bucket).sort(), mx = Math.max(1, ...Object.values(bucket));
-  const bl = (k) => (P === "y" || P === "all") ? new Date(k + "-15").toLocaleDateString("it-IT", { month: "short", year: P === "all" ? "2-digit" : undefined }) : "sett. " + fDay(k).slice(0, 5);
-  /* materiale */
+  const open = jobs.filter((j) => j.status !== "done" && j.status !== "void"), urg = (j) => /^\s*🚨/.test(j.title || "");
+  const openN = open.filter((j) => !urg(j)), toBack = open.filter((j) => /↩️ DA TORNARE/.test(j.description || ""));
+  const newJ = jobs.filter((j) => inP(j.created_at) && j.status !== "void");
+  const perJob = {}; for (const r of reps) if (r.job_id && r.minutes != null) perJob[r.job_id] = (perJob[r.job_id] || 0) + r.minutes;
   const mm = {}; let recov = 0;
   for (const r of reps) for (const m of (Array.isArray(r.materials) ? r.materials : [])) {
     if (m.src === "recuperato") { recov++; continue; } if (!m.desc) continue;
     const k = m.desc.trim().toLowerCase() + "|" + (m.unit || "").toLowerCase(), e = mm[k] = mm[k] || { d: m.desc.trim(), u: m.unit || "", q: 0, has: false };
     if (m.qty != null && m.qty !== "") { e.q += Number(m.qty); e.has = true; }
   }
-  const mats = Object.values(mm).sort((x, y) => y.q - x.q).slice(0, 8);
-  /* documenti */
+  const mats = Object.values(mm).filter((m) => m.has).sort((x, y) => y.q - x.q).slice(0, 8);
   const dP = docs.filter((d) => inP(d.doc_date || d.created_at)), cnt = (k) => dP.filter((d) => d.kind === k).length;
-  /* clienti */
   const byC = {}; for (const c of cls) { const k = c.category || "none"; byC[k] = (byC[k] || 0) + 1; }
+  /* ---- pezzi grafici ---- */
+  const card = (...c) => h("div", { class: "card", style: "padding:14px 16px" }, ...c);
+  const H = (t, sub) => h("div", { style: "margin:22px 0 8px" }, h("h2", { style: "margin:0" }, t), sub ? h("div", { class: "muted", style: "font-size:13px" }, sub) : null);
+  const delta = (cur, pr) => { if (!PA) return null; if (!pr) return h("div", { class: "muted", style: "font-size:12px" }, cur ? "nuovo" : "—"); const d = Math.round((cur - pr) / pr * 100); return h("div", { class: "muted", style: "font-size:12px" }, (d > 0 ? "▲ +" : d < 0 ? "▼ " : "= ") + d + "% vs " + pname); };
+  const tile = (icon, label, val, sub) => h("div", { class: "card", style: "padding:12px 14px;margin:0" }, h("div", { class: "muted", style: "font-size:13px" }, icon + " " + label), h("div", { style: "font-size:clamp(20px,6vw,28px);font-weight:700;line-height:36px;color:#0B1F5C;white-space:nowrap" }, val), sub || null);
+  const tiles = (arr) => h("div", { style: "display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px" }, arr);
+  const legend = (items) => h("div", { style: "display:flex;flex-wrap:wrap;gap:6px 14px;margin:8px 0 0;font-size:13px" }, items.map(([c, l]) => h("span", { style: "display:inline-flex;align-items:center;gap:6px" }, h("span", { style: "width:10px;height:10px;border-radius:3px;background:" + c }), l)));
+  /* colonne (anche impilate) */
+  const cols = (keys, series, fmt, lab, height) => {
+    const tots = keys.map((k) => series.reduce((x, sr) => x + (sr.v(k) || 0), 0)), mx = Math.max(1, ...tots), H0 = height || 130;
+    return h("div", { style: "display:flex;align-items:flex-end;gap:" + (keys.length > 8 ? 4 : 8) + "px;height:" + (H0 + 34) + "px;padding-top:18px" }, keys.map((k, i) => {
+      const segs = series.filter((sr) => (sr.v(k) || 0) > 0);
+      const col = h("div", { style: "flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0" },
+        h("div", { style: "font-size:11px;color:#4E5A66;white-space:nowrap" }, tots[i] ? fmt(tots[i]) : ""),
+        h("div", { style: "width:100%;max-width:38px;display:flex;flex-direction:column-reverse;gap:2px;height:" + Math.round(tots[i] / mx * H0) + "px" },
+          segs.map((sr, j) => { const e = h("div", { style: "flex:" + sr.v(k) + ";background:" + sr.c + ";min-height:3px;" + (j === segs.length - 1 ? "border-radius:4px 4px 0 0" : "") }); trTip(e, sr.n + " · " + lab(k) + ": " + fmt(sr.v(k))); return e; })),
+        h("div", { style: "font-size:11px;color:#66707B;margin-top:4px;white-space:nowrap" }, lab(k)));
+      return col;
+    }));
+  };
+  /* barre orizzontali ordinate */
+  const hbars = (rows, fmt, color) => { const mx = Math.max(1, ...rows.map((r) => r.v)); return rows.map((r) => { const bar = h("div", { style: "height:10px;background:" + (r.c || color || "#257de0") + ";border-radius:0 5px 5px 0;width:" + Math.max(2, Math.round(r.v / mx * 100)) + "%" }); trTip(bar, r.l + ": " + fmt(r.v)); return h("div", { style: "margin:8px 0" }, h("div", { class: "row", style: "font-size:14px" }, h("span", { style: "min-width:0;overflow:hidden;text-overflow:ellipsis" }, r.l), h("strong", { style: "margin-left:10px;white-space:nowrap" }, fmt(r.v))), h("div", { style: "background:#EEF1F4;border-radius:0 5px 5px 0;margin-top:3px" }, bar)); }); };
+  const seg = (parts) => { const t = parts.reduce((x, p) => x + p.v, 0) || 1; return h("div", { style: "display:flex;gap:2px;height:34px;border-radius:8px;overflow:hidden" }, parts.filter((p) => p.v > 0).map((p) => { const e = h("div", { style: "flex:" + p.v + ";background:" + p.c + ";color:#fff;font-size:13px;font-weight:600;display:flex;align-items:center;justify-content:center;min-width:22px" }, String(p.v)); trTip(e, p.l + ": " + p.v + " (" + Math.round(p.v / t * 100) + "%)"); return e; })); };
+  /* ---- pagina ---- */
+  const chip = (k, l) => h("button", { class: "chip" + (P === k ? " on" : ""), onclick: () => { S.trendP = k; render(); } }, l);
+  const out = [
+    h("h1", {}, "📈 Andamento"),
+    h("p", { class: "muted", style: "margin:0 0 8px" }, "Si aggiorna da solo ogni volta che lo apri."),
+    h("div", { class: "chips" }, chip("m", "Questo mese"), chip("pm", "Mese scorso"), chip("y", "Quest'anno"), chip("all", "Da sempre")),
+    h("div", { style: "height:10px" }),
+    tiles([
+      tile("⏱", "Ore lavorate", dur(tot * 60000), delta(tot, totPrev)),
+      tile("📝", "Rapportini", String(reps.length), h("div", { class: "muted", style: "font-size:12px" }, days + (days === 1 ? " giorno di lavoro" : " giorni di lavoro"))),
+      tile("🔧", "Lavori aperti", String(openN.length), h("div", { class: "muted", style: "font-size:12px" }, newJ.filter((j) => !urg(j)).length + " nuovi nel periodo")),
+      tile(toBack.length ? "↩️" : "🚨", toBack.length ? "Da tornare" : "Urgenze", String(toBack.length || newJ.filter(urg).length), h("div", { class: "muted", style: "font-size:12px" }, toBack.length ? "interventi da completare" : "interventi nel periodo"))
+    ]),
+    /* ore nel tempo */
+    H("Ore nel tempo", wide ? "mese per mese" : "settimana per settimana (da lunedì)"),
+    card(bkeys.length ? [cols(bkeys, people.filter((u) => bk && bkeys.some((k) => (bk[k] || {})[u.id])).map((u) => ({ n: nameP(u.id), c: colOf[u.id], v: (k) => ((bk[k] || {})[u.id] || 0) })), (m) => dur(m * 60000).replace(" 00m", "").replace("h 0", "h "), blab),
+      people.length > 1 ? legend(people.filter((u) => bkeys.some((k) => (bk[k] || {})[u.id])).map((u) => [colOf[u.id], nameP(u.id)])) : null,
+      h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, "Le ore di un lavoro fatto in due contano per tutti e due. Tocca una colonna per il dettaglio.")] : h("div", { class: "muted" }, "Nessuna ora nel periodo."))
+  ];
+  /* squadra */
+  const rowsP = people.map((u) => ({ u, e: per[u.id] || { m: 0, days: new Set(), reps: 0, jobs: new Set() } }));
+  if (own) {
+    const mxm = Math.max(1, ...rowsP.map((x) => x.e.m));
+    out.push(H("👷 La squadra", "ognuno, a confronto"));
+    for (const { u, e } of rowsP.sort((x, y) => y.e.m - x.e.m)) {
+      const share = tot ? Math.round(e.m / tot * 100) : 0;
+      out.push(h("div", { class: "card", style: "padding:14px 16px;border-left:6px solid " + colOf[u.id] },
+        h("div", { class: "row" }, h("strong", { style: "font-size:17px" }, nameP(u.id) === "Io" ? u.full_name + " (tu)" : u.full_name), h("strong", { style: "font-size:20px;color:#0B1F5C" }, dur(e.m * 60000))),
+        h("div", { style: "background:#EEF1F4;border-radius:0 5px 5px 0;margin:8px 0 4px" }, h("div", { style: "height:10px;border-radius:0 5px 5px 0;background:" + colOf[u.id] + ";width:" + Math.max(2, Math.round(e.m / mxm * 100)) + "%" })),
+        h("div", { class: "muted", style: "font-size:13px" }, share + "% delle ore della squadra" + (PA ? " · " + ((a) => (a ? (a > 0 ? "▲ +" : a < 0 ? "▼ " : "= ") + a + "% vs " + pname : "nuovo"))((perPrev[u.id] ? Math.round((e.m - perPrev[u.id]) / perPrev[u.id] * 100) : 0)) : "")),
+        h("div", { style: "display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-top:10px;text-align:center" },
+          [["Giorni", String(e.days.size)], ["Media/giorno", e.days.size ? dur(e.m / e.days.size * 60000) : "—"], ["Rapportini", String(e.reps)], ["Lavori", String(e.jobs.size)]].map(([l, v]) => h("div", { style: "background:#F5F7F9;border-radius:10px;padding:6px 2px" }, h("div", { style: "font-weight:700" }, v), h("div", { class: "muted", style: "font-size:11px" }, l)))),
+        (() => { const mine = {}; for (const r of reps) if (persOf(r).includes(u.id) && r.job_id && r.minutes != null) mine[r.job_id] = (mine[r.job_id] || 0) + r.minutes; const top = Object.entries(mine).sort((x, y) => y[1] - x[1]).slice(0, 3); return top.length ? h("div", { style: "margin-top:10px;font-size:13px" }, h("div", { class: "muted" }, "Dove ha lavorato di più"), top.map(([id, m]) => h("div", { class: "row", style: "padding:2px 0" }, h("span", {}, jt[id] || "—"), h("span", { class: "muted" }, dur(m * 60000))))) : null; })()));
+    }
+  } else {
+    const e = per[S.p.id] || { m: 0, days: new Set(), reps: 0, jobs: new Set() };
+    out.push(H("👷 Le tue ore"), h("div", { class: "card", style: "padding:14px 16px;border-left:6px solid " + colOf[S.p.id] },
+      h("div", { class: "row" }, h("span", { class: "muted" }, rng[P][2]), h("strong", { style: "font-size:22px;color:#0B1F5C" }, dur(e.m * 60000))),
+      h("div", { style: "display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:10px;text-align:center" },
+        [["Giorni", String(e.days.size)], ["Media/giorno", e.days.size ? dur(e.m / e.days.size * 60000) : "—"], ["Rapportini", String(e.reps)]].map(([l, v]) => h("div", { style: "background:#F5F7F9;border-radius:10px;padding:6px 2px" }, h("div", { style: "font-weight:700" }, v), h("div", { class: "muted", style: "font-size:11px" }, l))))));
+  }
+  /* lavori */
+  const sTodo = openN.filter((j) => j.status === "todo" && !toBack.includes(j)).length, sDo = openN.filter((j) => j.status === "doing" && !toBack.includes(j)).length;
+  out.push(H("🔧 Lavori adesso", "situazione di oggi"),
+    card(seg([{ l: "Da fare", v: sTodo, c: "#257de0" }, { l: "In corso", v: sDo, c: "#f2a600" }, { l: "Da tornare", v: openN.filter((j) => toBack.includes(j)).length, c: "#ec4647" }]),
+      legend([["#257de0", "Da fare"], ["#f2a600", "In corso"], ["#ec4647", "Da tornare"]]),
+      toBack.length ? h("div", { style: "margin-top:12px" }, h("div", { class: "muted", style: "margin-bottom:2px" }, "↩️ Da tornare"), toBack.slice(0, 6).map((j) => h("div", { class: "row", style: "padding:5px 0;cursor:pointer;border-top:1px solid #EAEDEF", onclick: () => go({ t: "job", id: j.id }) }, h("span", {}, (j.clients ? j.clients.name + " — " : "") + j.title), h("span", { class: "muted" }, "›")))) : null),
+    Object.keys(perJob).length ? [H("Lavori con più ore", rng[P][2].toLowerCase()), card(hbars(Object.entries(perJob).sort((x, y) => y[1] - x[1]).slice(0, 6).map(([id, m]) => ({ l: jt[id] || "—", v: m })), (m) => dur(m * 60000), "#257de0"))] : null);
+  /* materiale */
+  out.push(H("🧰 Materiale usato", rng[P][2].toLowerCase()), card(mats.length ? hbars(mats.map((m) => ({ l: m.d + (m.u ? " (" + m.u + ")" : ""), v: Math.round(m.q * 100) / 100 })), (v) => String(v), "#00b894") : h("div", { class: "muted" }, "Nessun materiale con quantità nel periodo."), recov ? h("div", { class: "muted", style: "margin-top:6px;font-size:13px" }, "♻️ Voci recuperate e rimesse in magazzino: " + recov) : null));
+  /* documenti */
+  const dOth = dP.length - cnt("foto") - cnt("bolla") - cnt("fattura") - cnt("scontrino"), nb = dP.filter((d) => d.kind === "bolla" && d.amount == null).length;
+  out.push(H("📎 Documenti caricati", rng[P][2].toLowerCase()), tiles([tile("📷", "Foto", String(cnt("foto"))), tile("🧾", "Bolle", String(cnt("bolla"))), tile("📄", "Fatture", String(cnt("fattura"))), tile("🗂️", "Scontrini e altri", String(cnt("scontrino") + dOth))]),
+    nb ? h("div", { class: "note", style: "margin-top:10px" }, "⚠️ Bolle senza importo: " + nb) : null);
+  /* clienti */
+  const ccol = { privato: "#257de0", azienda: "#f47230", comune: "#00b894", condominio: "#f2a600", altro: "#6a4ce2", none: "#9AA3AD" };
+  out.push(H("👤 Clienti", cls.length + " in totale · " + cls.filter((c) => inP(c.created_at)).length + " nuovi nel periodo"),
+    card(seg([...Object.keys(CLCATS), "none"].map((k) => ({ l: CLCATS[k] || "Da classificare", v: byC[k] || 0, c: ccol[k] }))), legend([...Object.keys(CLCATS), "none"].filter((k) => byC[k]).map((k) => [ccol[k], (CLCATS[k] ? CLCATS[k].replace(/^\S+ /, "") : "Da classificare")]))));
   /* soldi */
-  let money_ = null;
   if (own) {
     const sum = (arr, k) => r2(arr.reduce((x, y) => x + Number(y[k] || 0), 0));
     const em = inv.filter((i) => i.direction === "emessa"), ri = inv.filter((i) => i.direction === "ricevuta"), today = isoDay(new Date());
     const emP = em.filter((i) => inP(i.doc_date)), riP = ri.filter((i) => inP(i.doc_date)), exP = exps.filter((e) => inP(e.expense_date));
     const incP = em.filter((i) => i.paid && inP(i.paid_date || i.doc_date));
     const toCol = em.filter((i) => !i.paid), toPay = ri.filter((i) => !i.paid), late = toCol.filter((i) => i.due_date && i.due_date < today);
-    const costi = r2(sum(riP, "total") + sum(exP, "amount"));
-    money_ = sec("💶 Soldi (solo titolare)",
-      line("Fatturato nel periodo", money(sum(emP, "total")), true), line("Incassato nel periodo", money(sum(incP, "total"))),
-      line("Spese e acquisti nel periodo", money(costi)), line("Differenza (fatturato − spese)", money(r2(sum(emP, "total") - costi)), true),
-      sub("Da gestire adesso"), line("Da incassare", money(sum(toCol, "total")) + " (" + toCol.length + ")"), line("In ritardo", late.length ? money(sum(late, "total")) + " (" + late.length + ")" : "nessuna"), line("Da pagare ai fornitori", money(sum(toPay, "total")) + " (" + toPay.length + ")"));
+    const fat = sum(emP, "total"), costi = r2(sum(riP, "total") + sum(exP, "amount")), mon = {};
+    for (const i of emP) { const k = bkey(i.doc_date); (mon[k] = mon[k] || { f: 0, c: 0 }).f += Number(i.total || 0); }
+    for (const i of riP) { const k = bkey(i.doc_date); (mon[k] = mon[k] || { f: 0, c: 0 }).c += Number(i.total || 0); }
+    for (const e of exP) { const k = bkey(e.expense_date); (mon[k] = mon[k] || { f: 0, c: 0 }).c += Number(e.amount || 0); }
+    const mk = Object.keys(mon).sort().slice(-12);
+    out.push(H("💶 Soldi", "solo tu li vedi"),
+      tiles([tile("📤", "Fatturato", money(fat)), tile("✅", "Incassato", money(sum(incP, "total"))), tile("🧾", "Spese e acquisti", money(costi)), tile("📊", "Differenza", money(r2(fat - costi)))]),
+      mk.length ? [h("div", { style: "height:10px" }), card(cols(mk, [{ n: "Fatturato", c: "#257de0", v: (k) => (mon[k] || {}).f || 0 }, { n: "Spese", c: "#f47230", v: (k) => (mon[k] || {}).c || 0 }], (v) => Math.round(v) + "€", blab, 110), legend([["#257de0", "Fatturato"], ["#f47230", "Spese e acquisti"]]), h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, "Le colonne sono impilate: la parte blu è il fatturato, quella arancione le spese."))] : null,
+      h("div", { style: "height:10px" }),
+      card(h("div", { class: "muted" }, "Da gestire adesso"), h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, "Da incassare"), h("strong", {}, money(sum(toCol, "total")) + " (" + toCol.length + ")")), h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, "⚠️ In ritardo"), h("strong", {}, late.length ? money(sum(late, "total")) + " (" + late.length + ")" : "nessuna")), h("div", { class: "row", style: "padding:6px 0" }, h("span", {}, "Da pagare ai fornitori"), h("strong", {}, money(sum(toPay, "total")) + " (" + toPay.length + ")"))));
   }
-  return [
-    h("h1", {}, "📈 Andamento"),
-    h("p", { class: "muted", style: "margin:0 0 8px" }, "Si aggiorna da solo ogni volta che lo apri."),
-    h("div", { class: "chips" }, chip("m", "Questo mese"), chip("pm", "Mese scorso"), chip("y", "Quest'anno"), chip("all", "Da sempre")),
-    sec("🔧 Lavori",
-      line("Aperti adesso", String(open.filter((j) => !urg(j)).length), true), line("   di cui da fare", String(open.filter((j) => !urg(j) && j.status === "todo").length)), line("   di cui in corso", String(open.filter((j) => !urg(j) && j.status === "doing").length)),
-      line("Con «Da tornare»", String(toBack.length)),
-      sub(rng[P][2]), line("Lavori nuovi", String(newJ.filter((j) => !urg(j)).length)), line("Interventi urgenti", String(newJ.filter(urg).length)),
-      toBack.length ? [sub("Da tornare"), toBack.slice(0, 6).map((j) => h("div", { class: "row", style: "padding:3px 0;cursor:pointer", onclick: () => go({ t: "job", id: j.id }) }, h("span", {}, (j.clients ? j.clients.name + " — " : "") + j.title)))] : null),
-    sec("⏱ Ore lavorate", line("Totale " + rng[P][2].toLowerCase(), dur(tot * 60000), true), line("Giorni di lavoro", String(days)), line("Rapportini scritti", String(reps.length)),
-      Object.keys(per).length ? [sub("Per persona"), Object.entries(per).sort((x, y) => y[1] - x[1]).map(([u, m]) => line(who(u), dur(m * 60000)))] : null,
-      bk.length ? [sub(P === "y" || P === "all" ? "Mese per mese" : "Settimana per settimana"), bk.map((k) => h("div", { class: "row", style: "padding:3px 0;gap:8px" }, h("span", { class: "muted", style: "flex:0 0 74px;font-size:13px" }, bl(k)), h("div", { style: "flex:1;background:#EAEDEF;border-radius:6px;height:12px;overflow:hidden" }, h("div", { style: "width:" + Math.round(bucket[k] / mx * 100) + "%;height:100%;background:#0B1F5C" })), h("span", { style: "flex:0 0 62px;text-align:right;font-size:13px" }, dur(bucket[k] * 60000))))] : null,
-      Object.keys(perJob).length ? [sub("Lavori con più ore"), Object.entries(perJob).sort((x, y) => y[1] - x[1]).slice(0, 5).map(([id, m]) => line(jt[id] || "—", dur(m * 60000)))] : null),
-    sec("🧰 Materiale usato", mats.length ? mats.map((m) => line(m.d, m.has ? (Math.round(m.q * 100) / 100) + (m.u ? " " + m.u : "") : "—")) : h("div", { class: "muted" }, "Nessun materiale nel periodo."), recov ? h("div", { class: "muted", style: "margin-top:6px" }, "♻️ Voci recuperate e rimesse in magazzino: " + recov) : null),
-    sec("📎 Documenti caricati", line("Foto", String(cnt("foto"))), line("Bolle", String(cnt("bolla"))), line("Fatture", String(cnt("fattura"))), line("Scontrini", String(cnt("scontrino"))), line("Altri", String(dP.length - cnt("foto") - cnt("bolla") - cnt("fattura") - cnt("scontrino"))),
-      dP.filter((d) => d.kind === "bolla" && d.amount == null).length ? h("div", { class: "note", style: "margin-top:8px" }, "⚠️ Bolle senza importo: " + dP.filter((d) => d.kind === "bolla" && d.amount == null).length) : null),
-    sec("👤 Clienti", line("In totale", String(cls.length), true), line("Nuovi nel periodo", String(cls.filter((c) => inP(c.created_at)).length)),
-      sub("Per tipo"), Object.keys(CLCATS).filter((k) => byC[k]).map((k) => line(CLCATS[k], String(byC[k]))), byC.none ? line("❔ Da classificare", String(byC.none)) : null),
-    money_
-  ];
+  return out;
 }
 
 /* ---------- rapportini ---------- */
