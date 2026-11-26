@@ -563,7 +563,8 @@ async function reportForm(sub) {
   const id = sub.id, rep = id ? chk(await sb.from("reports").select("*").eq("id", id).single()) : null;
   const draft = !rep ? (() => { try { return JSON.parse(lk("rep_draft") || "null"); } catch { return null; } })() : null;
   const pre = rep || draft || {};
-  const [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(120).then(chk), team0()]);
+  let [jobs, tm] = await Promise.all([sb.from("jobs").select("id,title,start_at,status,clients(name)").order("start_at", { ascending: false, nullsFirst: false }).limit(200).then(chk), team0()]);
+  jobs = jobs.filter((j) => j.id === pre.job_id || (j.status !== "done" && j.status !== "void" && !/^\s*🚨/.test(j.title || "")));
   const mats = (Array.isArray(pre.materials) && pre.materials.length ? pre.materials : []).map((m) => ({ ...m }));
   const withSet = new Set(pre.with_ids || (rep ? [] : [S.p.id]));
   const matBox = h("div");
