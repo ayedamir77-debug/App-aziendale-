@@ -2300,6 +2300,9 @@ async function jobView(id) {
   const reloadAfter = (fn) => async () => { if (await attempt(fn)) render(); };
   const reps = await repList([j.id], "Nessun rapportino su questo lavoro.").catch(() => null);
   const cost = OWNER() ? await jobCostCard(j, docs).catch(() => null) : null;
+  if (S.jobTabFor !== id) { S.jobTabFor = id; S.jobTab = "stato"; }
+  const tab = S.jobTab || "stato";
+  const tabs = h("div", { class: "chips", style: "margin:14px 0 6px" }, [["stato", "📌 Stato"], ["rep", "📝 Rapportini"], ["mat", "🧰 Materiale" + (mats.length ? " (" + mats.length + ")" : "")], ["doc", "📎 Foto e documenti" + (docs.length ? " (" + docs.length + ")" : "")]].map(([k, l]) => h("button", { class: "chip" + (tab === k ? " on" : ""), onclick: () => { S.jobTab = k; render(); } }, l)));
   return [
     h("div", { class: "row" }, h("h1", { style: "margin-right:8px" }, jobIcon(j.title) + " " + j.title), badge(j.status)),
     j.start_at ? h("p", { class: "when" }, "🕒 " + fDT(j.start_at) + (j.end_at ? " → " + fTime(j.end_at) : "")) : null,
@@ -2313,6 +2316,8 @@ async function jobView(id) {
     OWNER() && names.length ? h("p", {}, "👷 Assegnato a: " + names.join(", ")) : null,
     h("button", { class: "primary", style: "width:100%;margin:8px 0", onclick: () => go({ t: "jobSummary", id: j.id }) }, "📊 Riepilogo del lavoro"),
 
+    tabs,
+    ...(tab === "stato" ? [
     h("h2", {}, "Avanzamento"),
     h("div", { class: "card" },
       h("label", { for: "st", style: "margin-top:0" }, "Stato"),
@@ -2322,9 +2327,18 @@ async function jobView(id) {
       h("textarea", { id: "fn", rows: "3", placeholder: "Cosa hai fatto, problemi, cose da ricordare…" }, j.field_notes || ""),
       h("button", { class: "primary", style: "margin-top:12px", onclick: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); }) }, "Salva avanzamento")),
 
+    h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: () => go({ t: "signoff", job: j.id }) }, "✍️ Rapporto e firma del cliente"),
+    cost,
+    [
+      h("button", { class: "secondary", style: "width:100%;margin-top:22px", onclick: () => go({ t: "jobForm", id: j.id }) }, "Modifica lavoro"),
+      OWNER() ? h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questo lavoro?")) return; if (await attempt(async () => { chk(await sb.from("jobs").delete().eq("id", j.id)); })) back(); } }, "Elimina lavoro") : null
+    ]
+    ] : tab === "rep" ? [
     h("h2", {}, "Rapportini di questo lavoro"), reps,
     h("button", { class: "secondary", style: "width:100%;margin-bottom:8px", onclick: () => { sk("rep_draft", JSON.stringify({ day: isoDay(new Date()), job_id: j.id, summary: "", with_ids: [], materials: [] })); go({ t: "reportForm" }); } }, "📝 Scrivi un rapportino"),
 
+
+    ] : tab === "mat" ? [
     h("h2", {}, "Materiale usato"),
     mats.length ? h("div", { class: "card" }, mats.map((m, i) => h("div", { class: "row", style: i ? "border-top:1px solid #EAEDEF;padding-top:8px;margin-top:8px" : "" },
       h("span", {}, m.description), h("span", { class: "muted" }, [m.quantity != null ? Number(m.quantity) : "", m.unit || ""].join(" ").trim(),
@@ -2338,18 +2352,16 @@ async function jobView(id) {
         const q = $("mq").value; chk(await sb.from("job_materials").insert({ job_id: j.id, company_id: j.company_id, description, quantity: q === "" ? null : Number(q), unit: $("mu").value.trim() || null, added_by: S.p.id }));
       }) }, "Aggiungi")),
 
+
+    ] : [
     h("h2", {}, "Foto del lavoro"),
     photoSection(j, photos, urls),
     h("h2", {}, "Documenti"),
     others.length ? others.map((d) => docItem(d, false)) : h("p", {}, "Nessun documento collegato."),
     h("button", { class: "secondary", style: "width:100%", onclick: () => go({ t: "docForm", job: j.id }) }, "+ Scansiona o aggiungi documento"),
 
-    h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: () => go({ t: "signoff", job: j.id }) }, "✍️ Rapporto e firma del cliente"),
-    cost,
-    [
-      h("button", { class: "secondary", style: "width:100%;margin-top:22px", onclick: () => go({ t: "jobForm", id: j.id }) }, "Modifica lavoro"),
-      OWNER() ? h("button", { class: "danger", onclick: async () => { if (!confirm("Eliminare questo lavoro?")) return; if (await attempt(async () => { chk(await sb.from("jobs").delete().eq("id", j.id)); })) back(); } }, "Elimina lavoro") : null
-    ]
+
+    ])
   ];
 }
 
