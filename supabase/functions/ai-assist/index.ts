@@ -113,6 +113,21 @@ Rispondi SOLO con JSON:
         : await askClaude([...imgs.map((x: { mime: string; b64: string }) => ({ type: "image", source: { type: "base64", media_type: x.mime, data: x.b64 } })), { type: "text", text: prompt }], system, 2500);
       return json(parseJson(text));
     }
+    if (body.task === "config") {
+      const txt = String(body.text || "").slice(0, 6000);
+      const imgs = (Array.isArray(body.images) ? body.images : []).slice(0, 4).filter((x: { mime?: string; b64?: string }) => x && ["image/jpeg", "image/png"].includes(String(x.mime)) && String(x.b64 || "").length < 8_000_000);
+      if (!imgs.length && !txt.trim()) return json({ error: "Manca la foto o il testo" }, 400);
+      const system = "Sei l'assistente di un installatore. Trascrivi configurazioni di centraline, orologi, timer, termostati e simili in modo ordinato, in italiano, senza inventare nulla. Rispondi solo in JSON.";
+      const prompt = `${imgs.length ? "Nelle foto ci sono schermate, display o appunti con la configurazione di un dispositivo (orari, programmi, parametri)." : "Questo testo è una configurazione dettata o scritta in fretta."} Trascrivila in modo ordinato e completo, pronta da ritrovare se il dispositivo perde la memoria.${txt.trim() ? "\nTesto già scritto dall'installatore (conservalo e integralo):\n" + txt : ""}
+Rispondi SOLO con JSON: {"text": string, "unclear": [string]}
+- "text": righe brevi, una voce per riga, nell'ordine in cui compaiono (es. "Programma 1: lun-ven 07:00–20:00", "Corsa: 3"). Titoli di sezione se servono. Solo testo semplice, senza markdown.
+- Non inventare valori. Se più foto, mantieni l'ordine delle foto.
+- "unclear": valori che non hai letto con sicurezza.`;
+      const text = provider === "gemini"
+        ? await askGemini([...imgs.map((x: { mime: string; b64: string }) => ({ inlineData: { mimeType: x.mime, data: x.b64 } })), { text: prompt }], system, true)
+        : await askClaude([...imgs.map((x: { mime: string; b64: string }) => ({ type: "image", source: { type: "base64", media_type: x.mime, data: x.b64 } })), { type: "text", text: prompt }], system, 2500);
+      return json(parseJson(text));
+    }
     if (body.task === "report") {
       const t = String(body.text || "").slice(0, 6000);
       const names = String(body.team || "").slice(0, 600);

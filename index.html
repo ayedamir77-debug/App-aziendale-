@@ -1224,6 +1224,29 @@ async function assetForm(sub) {
     h("label", { for: "a_n" }, "Utente"), h("input", { id: "a_n", value: a.username || "", autocomplete: "off" }),
     h("label", { for: "a_s" }, "Password"), sec, h("button", { class: "ghost", onclick: (e) => { sec.type = sec.type === "password" ? "text" : "password"; e.target.textContent = sec.type === "password" ? "Mostra password" : "Nascondi password"; } }, "Mostra password"),
     h("label", { for: "a_o" }, "Note (dispositivi, configurazione, cose da ricordare)"), h("textarea", { id: "a_o", rows: "6" }, a.notes || ""),
+    (() => {
+      const m = micButton({ get value() { return $("a_o").value; }, set value(v) { $("a_o").value = v; } }, () => {});
+      const pick = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" });
+      const need = () => { if (!co().ai_enabled) { m.st.textContent = "Per leggere le foto serve l'assistente IA: il titolare lo accende dalle impostazioni."; return false; } return true; };
+      const run = async (images, btn, busy) => {
+        btn.disabled = true; m.st.textContent = busy;
+        try {
+          const r = await aiCall({ task: "config", text: $("a_o").value.trim(), images });
+          if (r.text) { $("a_o").value = String(r.text).trim(); m.st.textContent = "Fatto." + (Array.isArray(r.unclear) && r.unclear.length ? " Da controllare: " + r.unclear.join("; ") : " Controlla e correggi se serve."); }
+          else m.st.textContent = "Non ho trovato niente da trascrivere. Prova con una foto più vicina.";
+        } catch (e) { m.st.textContent = "Non riesco: " + (e.message || e); }
+        btn.disabled = false;
+      };
+      const ph = h("button", { type: "button", class: "secondary", style: "flex:1", onclick: () => { if (need()) pick.click(); } }, "📷 Foto");
+      const tidy = h("button", { type: "button", class: "secondary", style: "flex:1", onclick: () => { if (!need()) return; if (!$("a_o").value.trim()) { m.st.textContent = "Scrivi o detta qualcosa prima."; return; } run([], tidy, "Metto in ordine…"); } }, "✨ Metti in ordine");
+      pick.onchange = async () => {
+        const files = [...pick.files].slice(0, 4); pick.value = ""; if (!files.length) return;
+        const images = [];
+        for (const f of files) { const bmp = await createImageBitmap(f), r = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); images.push({ mime: "image/jpeg", b64: c.toDataURL("image/jpeg", 0.85).split(",")[1] }); }
+        await run(images, ph, "Leggo le foto… qualche secondo.");
+      };
+      return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, ph, tidy), pick, m.st, h("div", { class: "muted", style: "font-size:13px" }, "Foto del display o dell'orologio (fino a 4, nell'ordine): l'IA scrive gli orari e i parametri nelle note."));
+    })(),
     h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
       const title = $("a_t").value.trim(); if (!title) throw new Error("Scrivi il nome dell'impianto");
       const row = { title, client_id: $("a_c").value || null, address_url: $("a_u").value.trim() || null, username: $("a_n").value.trim() || null, secret: $("a_s").value || null, notes: $("a_o").value.trim() || null };
