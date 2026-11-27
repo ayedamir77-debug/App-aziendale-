@@ -832,6 +832,23 @@ async function reportForm(sub) {
     tm.length ? h("div", { class: "chips" }, tm.map((t) => { const b = h("button", { class: "chip" + (withSet.has(t.id) ? " on" : ""), onclick: () => { if (withSet.has(t.id)) withSet.delete(t.id); else withSet.add(t.id); b.className = "chip" + (withSet.has(t.id) ? " on" : ""); stash(); } }, t.full_name); return b; })) : h("p", { class: "muted" }, "Nessun collega."),
     h("label", { for: "r_back" }, "↩️ Cosa manca / devo tornare (facoltativo)"),
     h("textarea", { id: "r_back", rows: "3", oninput: () => { backTouched = true; }, placeholder: "Es. portare il motore del cancello 2, impostare gli orari. Si aggiorna anche nel lavoro." }, backInit),
+    (() => {
+      const bf = { get value() { return $("r_back").value; }, set value(v) { $("r_back").value = v; } };
+      const m = micButton(bf, () => { backTouched = true; });
+      const tidy = h("button", { class: "secondary", style: "flex:1" }, "✨ Metti in ordine");
+      tidy.onclick = async () => {
+        m.stop && m.stop();
+        const raw = $("r_back").value.trim(); if (!raw) { m.st.textContent = "Prima scrivi o detta cosa manca."; return; }
+        tidy.disabled = true; m.st.textContent = "Sto mettendo in ordine…";
+        try {
+          if (co().ai_enabled) { const r = await aiCall({ task: "report", text: raw, team: "" }); if (r.summary) $("r_back").value = String(r.summary); m.st.textContent = "Fatto. Controlla e correggi se serve."; }
+          else { $("r_back").value = tidyText(raw) || raw; m.st.textContent = "Messo in elenco."; }
+          backTouched = true;
+        } catch (e) { m.st.textContent = "Non riesco: " + (e.message || e); }
+        tidy.disabled = false;
+      };
+      return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, tidy), m.st);
+    })(),
     h("div", { class: "muted", style: "font-size:13px;margin:2px 0 4px" }, "Se non manca più niente, lascia vuoto: nel lavoro sparisce l'avviso «Da tornare»."),
     h("h2", {}, "Materiale usato"), matBox,
     h("button", { class: "secondary", style: "width:100%", onclick: () => { mats.push({ desc: "", qty: null, unit: "", src: "nostro" }); drawMats(); } }, "+ Aggiungi materiale"),
