@@ -1124,7 +1124,7 @@ async function libraryView() {
     list.replaceChildren(...(rows.length ? rows.map((r) => h("div", { class: "card" },
       h("div", { class: "row" }, h("div", { class: "tap", style: "flex:1", onclick: () => go({ t: "libForm", id: r.id }) }, h("strong", {}, r.title), h("div", { class: "muted" }, [r.category, r.brand, r.model].filter(Boolean).join(" · "))),
         h("button", { class: "ghost", style: "font-size:22px", "aria-label": "Preferito", onclick: async () => { if (await attempt(async () => { chk(await sb.from("library").update({ fav: !r.fav }).eq("id", r.id)); })) load().catch(() => {}); } }, r.fav ? "★" : "☆")),
-      r.note ? h("div", { class: "muted", style: "white-space:pre-wrap;margin-top:4px" }, r.note.slice(0, 160)) : null,
+      (() => { const P = libParse(r.note); return [P.secs.length ? h("div", { class: "muted", style: "margin-top:4px" }, "📖 " + P.secs.map((x) => x.t).join(" · ")) : null, P.head ? h("div", { class: "muted", style: "white-space:pre-wrap;margin-top:4px" }, P.head.slice(0, 160)) : null]; })(),
       h("div", {}, r.file_path ? h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); openDoc({ file_path: r.file_path }); } }, "📄 Apri file") : null,
         r.url ? h("a", { class: "link", href: r.url, target: "_blank", rel: "noopener" }, "🔗 Link") : null))) : [h("p", {}, "Niente trovato.")]));
   };
@@ -1137,15 +1137,14 @@ async function libraryView() {
   setTimeout(async () => { try { for (const x of chk(await sb.from("library").select("category"))) if (x.category && !allC.includes(x.category)) allC.push(x.category); drawChips(); } catch { /* resta l'elenco base */ } }, 0);
   return [h("h1", {}, "Biblioteca tecnica"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "libForm" }) }, "+ Aggiungi scheda o manuale"), h("div", { style: "margin-top:12px" }, inp), chips, list];
 }
-function pickPages(txt, q) {
-  if (txt.length <= 11000) return txt;
-  const ws = normT(q).split(/\W+/).filter((w) => w.length > 2), parts = txt.split(/(?=\n--- Pagina \d+ ---)/);
-  const sc = parts.map((p, i) => { const t = normT(p); return [ws.reduce((n, w) => n + (t.split(w).length - 1), 0), i]; }).sort((x, y) => y[0] - x[0]);
-  const keep = []; let len = 0; for (const [, i] of sc) { if (len + parts[i].length > 11000) continue; keep.push(i); len += parts[i].length; }
-  return keep.sort((x, y) => x - y).map((i) => parts[i]).join("");
-}
+const libParse = (n) => {
+  const t = String(n || ""), i = t.search(/^## /m), secs = [];
+  if (i >= 0) for (const blk of t.slice(i).split(/^## /m).slice(1)) { const nl = blk.indexOf("\n"); secs.push({ t: (nl < 0 ? blk : blk.slice(0, nl)).trim(), x: nl < 0 ? "" : blk.slice(nl + 1).trim() }); }
+  return { head: (i < 0 ? t : t.slice(0, i)).trim(), secs };
+};
+const libPack = (head, secs) => [String(head || "").trim(), ...secs.filter((x) => x.t.trim() || x.x.trim()).map((x) => "## " + (x.t.trim() || "Senza titolo") + "\n" + x.x.trim())].filter(Boolean).join("\n\n");
 async function libForm(sub) {
-  const r = sub.id ? chk(await sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name,ocr_text").eq("id", sub.id).single()) : {};
+  const r = sub.id ? chk(await sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name").eq("id", sub.id).single()) : {};
   const say = h("p", { class: "muted" });
   let cats = [...LIB_CATS];
   try { for (const x of chk(await sb.from("library").select("category"))) if (x.category && !cats.includes(x.category)) cats.push(x.category); } catch { /* resta l'elenco base */ }
@@ -1154,63 +1153,58 @@ async function libForm(sub) {
   const newC = h("input", { id: "l_cn", placeholder: "Nome della nuova categoria", style: "display:none;margin-top:8px" });
   const selC = h("select", { id: "l_c", onchange: () => { newC.style.display = selC.value === "__new" ? "block" : "none"; if (selC.value === "__new") newC.focus(); } },
     cats.map((c) => h("option", { value: c, selected: c === curC }, c)), h("option", { value: "__new" }, "➕ Aggiungi categoria…"));
-  const pgs = [], plist = h("div");
-  const drawP = () => plist.replaceChildren(...pgs.map((f, i) => {
-    const im = f.type.startsWith("image/") ? h("img", { src: URL.createObjectURL(f), style: "width:48px;height:64px;object-fit:cover;border-radius:6px;border:1px solid #D5DADF" }) : h("span", { style: "font-size:28px" }, "📄");
-    const mv = (d) => () => { const j = i + d; if (j < 0 || j >= pgs.length) return; [pgs[i], pgs[j]] = [pgs[j], pgs[i]]; drawP(); };
-    return h("div", { class: "row", style: "gap:8px;padding:6px 0;border-top:1px solid #EAEDEF;align-items:center" }, im, h("strong", { style: "flex:1" }, "Pagina " + (i + 1)),
-      h("button", { class: "secondary", style: "width:44px;padding:0;height:44px", "aria-label": "Su", onclick: mv(-1) }, "↑"), h("button", { class: "secondary", style: "width:44px;padding:0;height:44px", "aria-label": "Giù", onclick: mv(1) }, "↓"),
-      h("button", { class: "deny", style: "width:44px;padding:0;height:44px", "aria-label": "Togli", onclick: () => { pgs.splice(i, 1); drawP(); } }, "✕"));
-  }));
-  const addFiles = (inp) => { for (const f of inp.files) pgs.push(f); inp.value = ""; drawP(); };
-  const fin = h("input", { id: "l_f", type: "file", accept: "application/pdf,image/*", multiple: true, style: "height:auto;padding:12px", onchange: () => addFiles(fin) });
-  const cam = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: () => addFiles(cam) });
-  const askBox = (r.ocr_text && co().ai_enabled) ? (() => {
-    const qi = h("input", { placeholder: "Es. Come si imposta la corsa del motore?" }), ans = h("div", { class: "note", style: "display:none;white-space:pre-wrap" });
-    return h("div", { class: "card" }, h("strong", {}, "✨ Chiedi alle istruzioni"), h("div", { class: "muted" }, "L'IA risponde leggendo questo manuale."), qi,
-      h("button", { class: "secondary", style: "width:100%;margin-top:8px", onclick: async (e) => { const q = qi.value.trim(); if (!q) return; e.target.disabled = true; await attempt(async () => { const x = await aiCall({ task: "ask", question: q, context: "Manuale «" + (r.title || "") + "»:\n" + pickPages(r.ocr_text, q) }); ans.style.display = "block"; ans.textContent = x.text || "Nessuna risposta."; }); e.target.disabled = false; } }, "Chiedi"), ans);
-  })() : null;
+  const P = libParse(r.note), secs = P.secs;
+  const box = h("div");
+  const drawS = () => box.replaceChildren(...(secs.length ? secs.map((sc, i) => {
+    const ta = h("textarea", { rows: String(Math.min(18, Math.max(4, sc.x.split("\n").length + 1))), style: "font-size:17px;line-height:1.5", oninput: () => { sc.x = ta.value; } }, sc.x);
+    const ti = h("input", { value: sc.t, placeholder: "Titolo sezione", style: "font-weight:700", oninput: () => { sc.t = ti.value; sm.textContent = sc.t || "Senza titolo"; } });
+    const mv = (d) => () => { const j = i + d; if (j < 0 || j >= secs.length) return; [secs[i], secs[j]] = [secs[j], secs[i]]; drawS(); };
+    const sm = h("summary", { style: "font-weight:700;font-size:18px;cursor:pointer" }, sc.t || "Senza titolo");
+    const d = h("details", { class: "card", ontoggle: () => { sc.open = d.open; } }, sm, ti, ta,
+      h("div", { class: "row", style: "gap:8px;margin-top:6px" }, h("button", { type: "button", class: "secondary", style: "flex:1", onclick: mv(-1) }, "↑ Su"), h("button", { type: "button", class: "secondary", style: "flex:1", onclick: mv(1) }, "↓ Giù"),
+        h("button", { type: "button", class: "deny", style: "flex:1", onclick: () => { if (!sc.x.trim() || confirm("Eliminare la sezione «" + (sc.t || "senza titolo") + "»?")) { secs.splice(i, 1); drawS(); } } }, "🗑")));
+    if (sc.open || secs.length === 1) d.open = true;
+    return d;
+  }) : [h("p", { class: "muted" }, "Ancora niente. Fotografa le pagine del manuale: l'IA le scrive qui divise per argomento, poi le foto non servono più.")]),
+    h("button", { type: "button", class: "ghost", onclick: () => { secs.push({ t: "", x: "", open: true }); drawS(); } }, "➕ Aggiungi sezione a mano"));
+  const merge = (list) => { for (const x of list) { const t = String(x.title || "").trim() || "Altro", lines = (Array.isArray(x.lines) ? x.lines : []).map((l) => String(l).trim()).filter(Boolean).join("\n"); if (!lines) continue; const ex = secs.find((s2) => normT(s2.t) === normT(t)); if (ex) { ex.x = (ex.x ? ex.x + "\n" : "") + lines; ex.open = true; } else secs.push({ t, x: lines, open: true }); } };
+  const pick = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" }), cam = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none" });
+  const ph = h("button", { type: "button", class: "primary", style: "margin-top:0", onclick: () => { if (!co().ai_enabled) { say.textContent = "Per leggere le foto serve l'assistente IA: il titolare lo accende dalle impostazioni."; return; } pick.click(); } }, "📷 Scrivi le istruzioni dalle foto");
+  const ph2 = h("button", { type: "button", class: "secondary", onclick: () => { if (!co().ai_enabled) { say.textContent = "Per leggere le foto serve l'assistente IA: il titolare lo accende dalle impostazioni."; return; } cam.click(); } }, "Scatta una pagina");
+  const read = async (inp) => {
+    const files = [...inp.files].slice(0, 16); inp.value = ""; if (!files.length) return;
+    ph.disabled = ph2.disabled = true; let unclear = [];
+    try {
+      for (let i = 0; i < files.length; i += 4) {
+        const grp = files.slice(i, i + 4); say.textContent = "Leggo le pagine " + (i + 1) + "–" + (i + grp.length) + " di " + files.length + "… qualche secondo.";
+        const images = [];
+        for (const f of grp) { const bmp = await createImageBitmap(f), k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); images.push({ mime: "image/jpeg", b64: await toB64(await new Promise((rs) => c.toBlob(rs, "image/jpeg", 0.85))) }); }
+        const x = await aiCall({ task: "manual", images, known: secs.map((s2) => s2.t).filter(Boolean).join(", ") });
+        merge(Array.isArray(x.sections) ? x.sections : []); if (Array.isArray(x.unclear)) unclear.push(...x.unclear);
+        if (x.title && !$("l_t").value.trim()) $("l_t").value = x.title;
+        drawS();
+      }
+      if (unclear.length) merge([{ title: "⚠️ Da controllare", lines: unclear }]);
+      drawS(); say.textContent = "Fatto. Controlla le sezioni e correggi se serve, poi premi Salva." + (unclear.length ? " Alcuni punti non erano leggibili: li trovi in «Da controllare»." : "");
+    } catch (e) { drawS(); say.textContent = "Non riesco: " + (e.message || e) + (secs.length ? " (quello già letto è qui sotto: premi Salva per non perderlo)" : ""); }
+    ph.disabled = ph2.disabled = false;
+  };
+  pick.onchange = () => read(pick); cam.onchange = () => read(cam);
+  drawS();
   return [h("h1", {}, sub.id ? "Scheda" : "Nuova scheda"),
     h("label", { for: "l_c" }, "Categoria"), selC, newC,
     h("div", { class: "sp" }, h("div", {}, h("label", { for: "l_b" }, "Marca"), h("input", { id: "l_b", value: r.brand || "" })), h("div", {}, h("label", { for: "l_m" }, "Modello"), h("input", { id: "l_m", value: r.model || "" }))),
-    h("label", { for: "l_t" }, "Titolo"), h("input", { id: "l_t", value: r.title || "", placeholder: "Es. Istruzioni programmazione" }),
-    h("label", { for: "l_n" }, "Note tue (trucchi, errori comuni…)"), h("textarea", { id: "l_n", rows: "4" }, r.note || ""),
+    h("label", { for: "l_t" }, "Titolo"), h("input", { id: "l_t", value: r.title || "", placeholder: "Es. Centralina cancello Came" }),
+    h("h2", {}, "📖 Istruzioni"), ph, h("div", { style: "margin-top:8px" }, ph2), pick, cam, say, box,
+    r.file_path ? h("div", {}, h("a", { class: "link", href: "#", onclick: (e) => { e.preventDefault(); openDoc({ file_path: r.file_path }); } }, "📄 Apri il file caricato in precedenza")) : null,
+    h("label", { for: "l_n" }, "Note tue (trucchi, errori comuni…)"), h("textarea", { id: "l_n", rows: "4" }, P.head),
     h("label", { for: "l_u" }, "Link (video o pagina del produttore)"), h("input", { id: "l_u", type: "url", value: r.url || "", placeholder: "https://…" }),
-    askBox,
-    h("label", { for: "l_f" }, r.file_path ? "Sostituisci con nuove pagine (foto o PDF)" : "Pagine (foto o PDF)"),
-    h("div", { class: "muted", style: "margin-bottom:6px" }, "Puoi aggiungere più foto: le metto in ordine in un PDF unico. Usa ↑ ↓ per spostarle."),
-    h("button", { type: "button", class: "secondary", style: "width:100%;margin-bottom:8px", onclick: () => cam.click() }, "📷 Fotografa una pagina"), cam, fin, plist,
-    cbox("l_ocr", "Leggi il testo di tutte le pagine per poterlo cercare", true), say,
     h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
       const title = $("l_t").value.trim(); if (!title) throw new Error("Scrivi il titolo");
-      const row = { category: ($("l_c").value === "__new" ? titleCase($("l_cn").value) : $("l_c").value) || "Altro", brand: $("l_b").value.trim() || null, model: $("l_m").value.trim() || null, title, note: $("l_n").value.trim() || null, url: $("l_u").value.trim() || null };
-      let f = pgs[0], pdfOcr = "";
-      if (pgs.length > 1) {
-        if (!pgs.every((x) => x.type.startsWith("image/"))) throw new Error("Metti insieme solo foto, oppure un solo PDF");
-        const out = [], want = $("l_ocr").checked;
-        for (let i = 0; i < pgs.length; i++) {
-          say.textContent = "Preparo la pagina " + (i + 1) + " di " + pgs.length + "…";
-          const c = await renderPage(await createImageBitmap(pgs[i]), 0, "doc", 2000);
-          const bl = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.78));
-          out.push({ bytes: new Uint8Array(await bl.arrayBuffer()), w: c.width, h: c.height });
-          if (want && i < 20) { try { say.textContent = "Leggo la pagina " + (i + 1) + " di " + pgs.length + "…"; pdfOcr += "\n--- Pagina " + (i + 1) + " ---\n" + await ocrCanvas(c, say); } catch { /* pagina senza testo */ } }
-        }
-        f = new File([buildPdf(out)], (title.replace(/[^\wÀ-ÿ -]/g, "").trim() || "istruzioni") + ".pdf", { type: "application/pdf" });
-      }
-      if (f) {
-        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB): togli qualche pagina");
-        const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
-        const path = S.p.company_id + "/lib/" + crypto.randomUUID() + "." + ext;
-        say.textContent = "Carico il file…";
-        const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" }); if (up.error) throw up.error;
-        row.file_path = path; row.file_name = f.name;
-        if (pdfOcr) row.ocr_text = pdfOcr.slice(0, 80000);
-        else if ($("l_ocr").checked) { try { row.ocr_text = (await readDocument({ file: f }, (t) => { say.textContent = t; })).slice(0, 80000); } catch { /* il file resta, senza testo cercabile */ } }
-        if (r.file_path) await sb.storage.from("docs").remove([r.file_path]);
-      }
+      const row = { category: ($("l_c").value === "__new" ? titleCase($("l_cn").value) : $("l_c").value) || "Altro", brand: $("l_b").value.trim() || null, model: $("l_m").value.trim() || null, title, note: libPack($("l_n").value, secs) || null, url: $("l_u").value.trim() || null };
       if (sub.id) chk(await sb.from("library").update(row).eq("id", sub.id)); else chk(await sb.from("library").insert({ ...row, company_id: S.p.company_id })); });
       if (ok) back(); else e.target.disabled = false; } }, "Salva"),
-    sub.id ? delBtn("Eliminare questa scheda e il suo file?", async () => { if (r.file_path) await sb.storage.from("docs").remove([r.file_path]); chk(await sb.from("library").delete().eq("id", sub.id)); }) : null];
+    sub.id ? delBtn("Eliminare questa scheda?", async () => { if (r.file_path) await sb.storage.from("docs").remove([r.file_path]); chk(await sb.from("library").delete().eq("id", sub.id)); }) : null];
 }
 
 /* ---------- schede impianto ---------- */

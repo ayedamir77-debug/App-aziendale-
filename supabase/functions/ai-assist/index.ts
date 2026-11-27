@@ -128,6 +128,23 @@ Rispondi SOLO con JSON: {"text": string, "unclear": [string]}
         : await askClaude([...imgs.map((x: { mime: string; b64: string }) => ({ type: "image", source: { type: "base64", media_type: x.mime, data: x.b64 } })), { type: "text", text: prompt }], system, 2500);
       return json(parseJson(text));
     }
+    if (body.task === "manual") {
+      const imgs = (Array.isArray(body.images) ? body.images : []).slice(0, 4).filter((x: { mime?: string; b64?: string }) => x && ["image/jpeg", "image/png"].includes(String(x.mime)) && String(x.b64 || "").length < 8_000_000);
+      if (!imgs.length) return json({ error: "Manca la foto" }, 400);
+      const known = String(body.known || "").slice(0, 600);
+      const system = "Sei l'assistente di un installatore. Trascrivi manuali di istruzioni in italiano, completi e ordinati, senza inventare nulla. Rispondi solo in JSON.";
+      const prompt = `Nelle foto ci sono pagine di un manuale di istruzioni (centralina, automazione, orologio, termostato o simili), anche in altra lingua: traduci in italiano. Trascrivi TUTTO il contenuto utile in modo ordinato e chiaro, così che l'installatore non debba più guardare le foto.
+Rispondi SOLO con JSON: {"title": string|null, "sections":[{"title":string,"lines":[string]}], "unclear":[string]}
+- Dividi in sezioni con titoli brevi. Usa questi titoli quando il contenuto c'entra: Collegamenti, Programmazione, Funzioni, Dati tecnici, Messaggi di errore, Installazione, Altro.${known ? " Sezioni già presenti (riusa lo stesso titolo se il contenuto è dello stesso tipo): " + known : ""}
+- "lines": una riga per voce, brevi. Collegamenti: "Morsetti 1-2: alimentazione 230 V". Programmazione: passi numerati "1. Premi P1 per 3 secondi", parametri "F1 = chiusura automatica (0 = no, 1 = sì)". Tabelle: una riga per voce "nome: valore".
+- Mantieni esatti sigle, numeri, valori e unità. Non inventare e non saltare parti.
+- "title": nome del prodotto se si legge.
+- "unclear": cosa non si legge con sicurezza (scrivi il punto, non scusarti).`;
+      const text = provider === "gemini"
+        ? await askGemini([...imgs.map((x: { mime: string; b64: string }) => ({ inlineData: { mimeType: x.mime, data: x.b64 } })), { text: prompt }], system, true)
+        : await askClaude([...imgs.map((x: { mime: string; b64: string }) => ({ type: "image", source: { type: "base64", media_type: x.mime, data: x.b64 } })), { type: "text", text: prompt }], system, 6000);
+      return json(parseJson(text));
+    }
     if (body.task === "report") {
       const t = String(body.text || "").slice(0, 6000);
       const names = String(body.team || "").slice(0, 600);
