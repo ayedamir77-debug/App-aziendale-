@@ -1135,29 +1135,68 @@ async function libraryView() {
   drawChips(); setTimeout(() => load().catch(() => {}), 0);
   return [h("h1", {}, "Biblioteca tecnica"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "libForm" }) }, "+ Aggiungi scheda o manuale"), h("div", { style: "margin-top:12px" }, inp), chips, list];
 }
+function pickPages(txt, q) {
+  if (txt.length <= 11000) return txt;
+  const ws = normT(q).split(/\W+/).filter((w) => w.length > 2), parts = txt.split(/(?=\n--- Pagina \d+ ---)/);
+  const sc = parts.map((p, i) => { const t = normT(p); return [ws.reduce((n, w) => n + (t.split(w).length - 1), 0), i]; }).sort((x, y) => y[0] - x[0]);
+  const keep = []; let len = 0; for (const [, i] of sc) { if (len + parts[i].length > 11000) continue; keep.push(i); len += parts[i].length; }
+  return keep.sort((x, y) => x - y).map((i) => parts[i]).join("");
+}
 async function libForm(sub) {
-  const r = sub.id ? chk(await sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name").eq("id", sub.id).single()) : {};
+  const r = sub.id ? chk(await sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name,ocr_text").eq("id", sub.id).single()) : {};
   const say = h("p", { class: "muted" });
+  const pgs = [], plist = h("div");
+  const drawP = () => plist.replaceChildren(...pgs.map((f, i) => {
+    const im = f.type.startsWith("image/") ? h("img", { src: URL.createObjectURL(f), style: "width:48px;height:64px;object-fit:cover;border-radius:6px;border:1px solid #D5DADF" }) : h("span", { style: "font-size:28px" }, "📄");
+    const mv = (d) => () => { const j = i + d; if (j < 0 || j >= pgs.length) return; [pgs[i], pgs[j]] = [pgs[j], pgs[i]]; drawP(); };
+    return h("div", { class: "row", style: "gap:8px;padding:6px 0;border-top:1px solid #EAEDEF;align-items:center" }, im, h("strong", { style: "flex:1" }, "Pagina " + (i + 1)),
+      h("button", { class: "secondary", style: "width:44px;padding:0;height:44px", "aria-label": "Su", onclick: mv(-1) }, "↑"), h("button", { class: "secondary", style: "width:44px;padding:0;height:44px", "aria-label": "Giù", onclick: mv(1) }, "↓"),
+      h("button", { class: "deny", style: "width:44px;padding:0;height:44px", "aria-label": "Togli", onclick: () => { pgs.splice(i, 1); drawP(); } }, "✕"));
+  }));
+  const addFiles = (inp) => { for (const f of inp.files) pgs.push(f); inp.value = ""; drawP(); };
+  const fin = h("input", { id: "l_f", type: "file", accept: "application/pdf,image/*", multiple: true, style: "height:auto;padding:12px", onchange: () => addFiles(fin) });
+  const cam = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: () => addFiles(cam) });
+  const askBox = (r.ocr_text && co().ai_enabled) ? (() => {
+    const qi = h("input", { placeholder: "Es. Come si imposta la corsa del motore?" }), ans = h("div", { class: "note", style: "display:none;white-space:pre-wrap" });
+    return h("div", { class: "card" }, h("strong", {}, "✨ Chiedi alle istruzioni"), h("div", { class: "muted" }, "L'IA risponde leggendo questo manuale."), qi,
+      h("button", { class: "secondary", style: "width:100%;margin-top:8px", onclick: async (e) => { const q = qi.value.trim(); if (!q) return; e.target.disabled = true; await attempt(async () => { const x = await aiCall({ task: "ask", question: q, context: "Manuale «" + (r.title || "") + "»:\n" + pickPages(r.ocr_text, q) }); ans.style.display = "block"; ans.textContent = x.text || "Nessuna risposta."; }); e.target.disabled = false; } }, "Chiedi"), ans);
+  })() : null;
   return [h("h1", {}, sub.id ? "Scheda" : "Nuova scheda"),
     h("label", { for: "l_c" }, "Categoria"), h("input", { id: "l_c", value: r.category || "Centraline", list: "dl_lc" }), h("datalist", { id: "dl_lc" }, LIB_CATS.map((c) => h("option", { value: c }))),
     h("div", { class: "sp" }, h("div", {}, h("label", { for: "l_b" }, "Marca"), h("input", { id: "l_b", value: r.brand || "" })), h("div", {}, h("label", { for: "l_m" }, "Modello"), h("input", { id: "l_m", value: r.model || "" }))),
     h("label", { for: "l_t" }, "Titolo"), h("input", { id: "l_t", value: r.title || "", placeholder: "Es. Istruzioni programmazione" }),
     h("label", { for: "l_n" }, "Note tue (trucchi, errori comuni…)"), h("textarea", { id: "l_n", rows: "4" }, r.note || ""),
     h("label", { for: "l_u" }, "Link (video o pagina del produttore)"), h("input", { id: "l_u", type: "url", value: r.url || "", placeholder: "https://…" }),
-    h("label", { for: "l_f" }, r.file_path ? "Sostituisci il file (PDF o foto)" : "File (PDF o foto)"), h("input", { id: "l_f", type: "file", accept: "application/pdf,image/*", style: "height:auto;padding:12px" }),
-    cbox("l_ocr", "Leggi il testo per poterlo cercare", true), say,
+    askBox,
+    h("label", { for: "l_f" }, r.file_path ? "Sostituisci con nuove pagine (foto o PDF)" : "Pagine (foto o PDF)"),
+    h("div", { class: "muted", style: "margin-bottom:6px" }, "Puoi aggiungere più foto: le metto in ordine in un PDF unico. Usa ↑ ↓ per spostarle."),
+    h("button", { type: "button", class: "secondary", style: "width:100%;margin-bottom:8px", onclick: () => cam.click() }, "📷 Fotografa una pagina"), cam, fin, plist,
+    cbox("l_ocr", "Leggi il testo di tutte le pagine per poterlo cercare", true), say,
     h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
       const title = $("l_t").value.trim(); if (!title) throw new Error("Scrivi il titolo");
       const row = { category: $("l_c").value.trim() || "Altro", brand: $("l_b").value.trim() || null, model: $("l_m").value.trim() || null, title, note: $("l_n").value.trim() || null, url: $("l_u").value.trim() || null };
-      const f = $("l_f").files[0];
+      let f = pgs[0], pdfOcr = "";
+      if (pgs.length > 1) {
+        if (!pgs.every((x) => x.type.startsWith("image/"))) throw new Error("Metti insieme solo foto, oppure un solo PDF");
+        const out = [], want = $("l_ocr").checked;
+        for (let i = 0; i < pgs.length; i++) {
+          say.textContent = "Preparo la pagina " + (i + 1) + " di " + pgs.length + "…";
+          const c = await renderPage(await createImageBitmap(pgs[i]), 0, "doc", 2000);
+          const bl = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.78));
+          out.push({ bytes: new Uint8Array(await bl.arrayBuffer()), w: c.width, h: c.height });
+          if (want && i < 20) { try { say.textContent = "Leggo la pagina " + (i + 1) + " di " + pgs.length + "…"; pdfOcr += "\n--- Pagina " + (i + 1) + " ---\n" + await ocrCanvas(c, say); } catch { /* pagina senza testo */ } }
+        }
+        f = new File([buildPdf(out)], (title.replace(/[^\wÀ-ÿ -]/g, "").trim() || "istruzioni") + ".pdf", { type: "application/pdf" });
+      }
       if (f) {
-        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB)");
+        if (f.size > 10485760) throw new Error("File troppo grande (max 10 MB): togli qualche pagina");
         const ext = ((f.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "") || "bin").slice(0, 5);
         const path = S.p.company_id + "/lib/" + crypto.randomUUID() + "." + ext;
         say.textContent = "Carico il file…";
         const up = await sb.storage.from("docs").upload(path, f, { contentType: f.type || "application/octet-stream" }); if (up.error) throw up.error;
         row.file_path = path; row.file_name = f.name;
-        if ($("l_ocr").checked) { try { row.ocr_text = (await readDocument({ file: f }, (t) => { say.textContent = t; })).slice(0, 80000); } catch { /* il file resta, senza testo cercabile */ } }
+        if (pdfOcr) row.ocr_text = pdfOcr.slice(0, 80000);
+        else if ($("l_ocr").checked) { try { row.ocr_text = (await readDocument({ file: f }, (t) => { say.textContent = t; })).slice(0, 80000); } catch { /* il file resta, senza testo cercabile */ } }
         if (r.file_path) await sb.storage.from("docs").remove([r.file_path]);
       }
       if (sub.id) chk(await sb.from("library").update(row).eq("id", sub.id)); else chk(await sb.from("library").insert({ ...row, company_id: S.p.company_id })); });
