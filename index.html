@@ -469,7 +469,7 @@ function menuGroups() {
   return [
     ["Lavoro", A([G("📈", "Andamento", "trend"), T("🔧", "Lavori", "jobs"), T("📅", "Agenda", "cal"), T("👤", "Clienti", "clients"), G("📝", "Rapportini", "reports"), G("🚨", "Urgenti", "urgent")])],
     ["Documenti e soldi", A([T("🗂️", "Documenti", "docs"), own ? T("💼", "Ufficio", "office") : null, own ? G("✉️", "Solleciti", "chase") : null])],
-    ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock")])],
+    ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock"), G("🧰", "Materiale con IA", "matai")])],
     ["Squadra", A([G("💬", "Chat", "chat"), G("📣", "Bacheca", "posts"), own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null])],
     ["Mezzi e scadenze", A([G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr")])],
     ["Strumenti", A([G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🔎", "Cerca", "search"), G("🔔", "Novità", "news"), G("📻", "Radio", "radio"), G("🤖", "Assistente IA", "extra"), G("ℹ️", "Info", "info")])]
@@ -1263,6 +1263,86 @@ async function jobChecklists(j) {
         h("button", { class: "ghost", style: "color:#A32121;font-size:13px", onclick: async () => { if (confirm("Eliminare la checklist?") && await attempt(async () => { chk(await sb.from("job_checklists").delete().eq("id", c.id)); })) render(); } }, "Elimina checklist")); }),
     sel];
 }
+/* ---------- materiale con IA: scrivi o fotografa, l'IA fa l'elenco, poi lo metti nel lavoro ---------- */
+async function matAiView() {
+  const jobs = chk(await sb.from("jobs").select("id,title,status,clients(name)").neq("status", "done").neq("status", "void").order("created_at", { ascending: false }).limit(400));
+  let items = [], imgs = [];
+  const ai = !!co().ai_enabled;
+  const ta = h("textarea", { rows: "5", placeholder: "Scrivi o detta il materiale. Es. 50 metri cavo 3x1,5, 4 prese bticino, 1 centralino 12 moduli…" });
+  const mic = micButton({ get value() { return ta.value; }, set value(v) { ta.value = v; } }, () => {});
+  const say = h("p", { class: "muted", style: "margin:8px 0 0" });
+  const thumbs = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:10px" });
+  const drawThumbs = () => thumbs.replaceChildren(...imgs.map((im, i) => h("div", { style: "position:relative" }, h("img", { src: im.url, alt: "", style: "width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid #DDE2E6" }), h("button", { class: "ghost", "aria-label": "Togli", style: "position:absolute;top:-8px;right:-8px;width:28px;height:28px;padding:0;border-radius:50%;background:#fff;border:1px solid #ccc", onclick: () => { imgs.splice(i, 1); drawThumbs(); } }, "✕"))));
+  const addFiles = async (files) => {
+    for (const f of [...files]) {
+      if (imgs.length >= 4) { say.textContent = "Al massimo 4 foto alla volta."; break; }
+      try { const bmp = await createImageBitmap(f), r = Math.min(1, 1500 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); const blob = await new Promise((res) => c.toBlob(res, "image/jpeg", 0.82)); imgs.push({ blob, url: URL.createObjectURL(blob) }); } catch { say.textContent = "Una foto non si è aperta."; }
+    }
+    drawThumbs();
+  };
+  const cam = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: (e) => { addFiles(e.target.files); e.target.value = ""; } });
+  const gal = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: (e) => { addFiles(e.target.files); e.target.value = ""; } });
+  const listBox = h("div");
+  const drawItems = () => {
+    listBox.replaceChildren(...(items.length ? [h("h2", {}, "Elenco (" + items.length + ")"), h("p", { class: "muted", style: "margin:0 0 8px" }, "Controlla e correggi quello che serve.")] : []),
+      ...items.map((it, i) => h("div", { class: "card", style: "padding:10px 12px" },
+        h("input", { value: it.desc, "aria-label": "Materiale", oninput: (e) => { it.desc = e.target.value; } }),
+        h("div", { style: "display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:8px" },
+          h("input", { type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità", value: it.qty == null ? "" : it.qty, oninput: (e) => { it.qty = e.target.value === "" ? null : Number(e.target.value); } }),
+          h("input", { placeholder: "Unità (m, pz…)", value: it.unit || "", oninput: (e) => { it.unit = e.target.value; } }),
+          h("button", { class: "ghost", "aria-label": "Elimina", onclick: () => { items.splice(i, 1); drawItems(); } }, "✕")))),
+      ...(items.length ? [h("button", { class: "secondary", style: "width:100%", onclick: () => { items.push({ desc: "", qty: null, unit: "" }); drawItems(); } }, "+ Aggiungi riga")] : []));
+    sendBox.style.display = items.length ? "" : "none";
+  };
+  const norm = (arr) => (Array.isArray(arr) ? arr : []).filter((x) => x && x.desc).map((x) => ({ desc: String(x.desc).trim(), qty: numOrNull(x.qty), unit: x.unit ? String(x.unit) : "" }));
+  const localList = (t) => t.split(/\n|;/).map((l) => l.trim().replace(/^[-•*\d.)\s]+(?=\D)/, "").trim()).filter(Boolean).map((l) => { const m = l.match(/^(\d+(?:[.,]\d+)?)\s*(m|mt|metri|pz|pezzi|kg|cm|rotoli|rotolo|scatole|scatola)?\s+(.+)$/i); return m ? { desc: m[3], qty: Number(m[1].replace(",", ".")), unit: m[2] || "" } : { desc: l, qty: null, unit: "" }; });
+  const go1 = h("button", { class: "primary", style: "width:100%;margin-top:12px" }, "✨ Fai l'elenco");
+  go1.onclick = async () => {
+    const raw = ta.value.trim(); if (!raw && !imgs.length) { say.textContent = "Scrivi, detta o fotografa qualcosa."; return; }
+    if (imgs.length && !ai) { say.textContent = "Per leggere le foto serve l'assistente IA: il titolare lo accende dalle impostazioni."; return; }
+    go1.disabled = true; say.textContent = ai ? "Leggo con l'IA… qualche secondo." : "Faccio l'elenco…";
+    try {
+      let got = [];
+      if (!ai) got = localList(raw);
+      else {
+        const images = []; for (const im of imgs) images.push({ mime: "image/jpeg", b64: await toB64(im.blob) });
+        try { const r = await aiCall({ task: "materials", text: raw, images }); got = norm(r.items); }
+        catch (e) {
+          if (!/non valida/i.test(String(e.message))) throw e;   // la funzione IA non è ancora aggiornata: uso quella vecchia
+          if (raw) { const r = await aiCall({ task: "report", text: raw, team: "" }); got = norm(r.materials); }
+          for (const im of imgs) { const r = await aiReadFile(im.blob, "image/jpeg"); got = got.concat(norm(r.items)); }
+        }
+      }
+      if (!got.length) { say.textContent = "Non ho trovato materiale. Prova a scriverlo più chiaro o con una foto più vicina."; }
+      else { items = items.concat(got); say.textContent = "Fatto: " + got.length + (got.length === 1 ? " voce." : " voci."); drawItems(); }
+    } catch (e) { say.textContent = "Non riesco: " + (e.message || e); }
+    go1.disabled = false;
+  };
+  const sendMsg = h("p", { class: "muted", style: "margin:8px 0 0" });
+  const jp = jobPick("mai_job", jobs, "", null, null);
+  const put = h("button", { class: "primary", style: "width:100%;margin-top:10px" }, "➕ Metti nel lavoro");
+  put.onclick = async () => {
+    const jid = $("mai_job").value, rows = items.filter((x) => x.desc.trim());
+    if (!jid) { sendMsg.textContent = "Scegli prima il lavoro."; return; }
+    if (!rows.length) { sendMsg.textContent = "L'elenco è vuoto."; return; }
+    put.disabled = true;
+    try {
+      chk(await sb.from("job_materials").insert(rows.map((x) => ({ job_id: jid, company_id: S.p.company_id, description: x.desc.trim(), quantity: x.qty, unit: (x.unit || "").trim() || null, added_by: S.p.id }))));
+      const j = jobs.find((x) => x.id === jid), n = rows.length;
+      items = []; imgs = []; ta.value = ""; drawThumbs(); drawItems(); say.textContent = "";
+      sendMsg.replaceChildren("✅ Messi " + n + (n === 1 ? " materiale" : " materiali") + " nel lavoro «" + (j ? j.title : "") + "». ", h("a", { href: "#", onclick: (e) => { e.preventDefault(); go({ t: "job", id: jid }); } }, "Apri il lavoro"));
+    } catch (e) { sendMsg.textContent = "Non salvato: " + (e.message || e); }
+    put.disabled = false;
+  };
+  const sendBox = h("div", { class: "card", style: "display:none" }, h("label", { style: "margin-top:0" }, "In quale lavoro?"), jp, put);
+  drawItems();
+  return [h("h1", {}, "🧰 Materiale con IA"),
+    h("div", { class: "note", style: "margin-top:0" }, "Scrivi, detta a voce o fotografa il materiale (anche una bolla o uno scontrino). Faccio l'elenco, lo controlli e lo metti nel lavoro."),
+    h("div", { class: "card" }, ta, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, mic.btn), mic.st,
+      h("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px" }, h("button", { class: "secondary", onclick: () => cam.click() }, "📷 Scatta foto"), h("button", { class: "secondary", onclick: () => gal.click() }, "🖼️ Scegli foto")), cam, gal, thumbs, go1, say),
+    listBox, sendBox, sendMsg];
+}
+
 /* ---------- notifiche sul telefono (push) ---------- */
 const PUSHFN = "send-push";
 const b64u = (b) => { const r = atob((b + "=".repeat((4 - b.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
@@ -1701,7 +1781,7 @@ async function clockIn(job) { const p = await posArgs(); chk(p ? await sb.rpc("c
 async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clock_out_pos", { p_lat: p.lat, p_lng: p.lng }) : await sb.rpc("clock_out")); }
 
 /* ---------- elenco delle nuove pagine ---------- */
-const NEWROUTES = { trend: trendView,
+const NEWROUTES = { trend: trendView, matai: matAiView,
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
   chat: chatView, backup: backupView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, jobSummary: jobSummaryView, urgent: urgentView, urgentForm, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };

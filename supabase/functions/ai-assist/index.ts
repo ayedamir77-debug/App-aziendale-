@@ -96,6 +96,17 @@ Deno.serve(async (req) => {
         : await askClaude([{ type: "text", text: prompt }], system, 800);
       return json({ text });
     }
+    if (body.task === "materials") {
+      const txt = String(body.text || "").slice(0, 6000);
+      const imgs = (Array.isArray(body.images) ? body.images : []).slice(0, 4).filter((x: { mime?: string; b64?: string }) => x && ["image/jpeg", "image/png"].includes(String(x.mime)) && String(x.b64 || "").length < 8_000_000);
+      if (!txt.trim() && !imgs.length) return json({ error: "Niente da leggere" }, 400);
+      const system = "Sei l'assistente di un'azienda di impianti elettrici e domotici. Rispondi solo in JSON.";
+      const prompt = `Fai l'elenco del materiale elettrico/domotico.${txt.trim() ? "\nTesto dettato o scritto:\n" + txt : ""}${imgs.length ? "\nLe foto possono mostrare una bolla, uno scontrino, una lista scritta a mano o il materiale stesso: elenca ogni articolo riconoscibile." : ""}\nRispondi SOLO con JSON: {"items":[{"desc":"descrizione breve","qty":numero o null,"unit":"m|pz|kg|... o null"}]}. Non inventare quantità non scritte né visibili: se non sei sicuro metti null. Unisci i doppioni.`;
+      const text = provider === "gemini"
+        ? await askGemini([...imgs.map((x: { mime: string; b64: string }) => ({ inlineData: { mimeType: x.mime, data: x.b64 } })), { text: prompt }], system, true)
+        : await askClaude([...imgs.map((x: { mime: string; b64: string }) => ({ type: "image", source: { type: "base64", media_type: x.mime, data: x.b64 } })), { type: "text", text: prompt }], system, 1500);
+      return json(parseJson(text));
+    }
     if (body.task === "report") {
       const t = String(body.text || "").slice(0, 6000);
       const names = String(body.team || "").slice(0, 600);
