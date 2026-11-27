@@ -2,7 +2,7 @@
 // Pagina e file dell'app: prima la rete (così gli aggiornamenti arrivano subito), se manca la rete usa la copia salvata.
 // Librerie esterne (Supabase, OCR, PDF): copia salvata, aggiornata in sottofondo.
 // Le chiamate ai dati (Supabase) non vengono mai salvate.
-const CACHE = 'app-azienda-v78';
+const CACHE = 'app-azienda-v79';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil((async () => {
   for (const k of await caches.keys()) if (k !== CACHE) await caches.delete(k);
@@ -15,7 +15,7 @@ self.addEventListener('fetch', (e) => {
   const lib = url.hostname === 'esm.sh' || url.hostname === 'cdn.jsdelivr.net';
   if (url.origin === location.origin) {
     e.respondWith((async () => {
-      try { const r = await fetch(req); if (r.ok) (await caches.open(CACHE)).put(req, r.clone()); return r; }
+      try { const r = await fetch(req, { cache: 'no-cache' }); if (r.ok) (await caches.open(CACHE)).put(req, r.clone()); return r; }
       catch { return (await caches.match(req)) || (await caches.match('./index.html')) || Response.error(); }
     })());
   } else if (lib) {

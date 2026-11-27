@@ -3830,7 +3830,17 @@ sb.auth.onAuthStateChange((event, session) => {
   if (event === "SIGNED_OUT") { S.p = null; S.tab = "home"; S.sub = null; S.stack = []; authScreen(); }
   else if (event === "SIGNED_IN" && (!S.p || (session && session.user.id !== S.p.id))) boot();
 });
-if ("serviceWorker" in navigator) { try { navigator.serviceWorker.register("sw.js"); } catch { /* non essenziale */ } }
+if ("serviceWorker" in navigator) {
+  try {
+    const hadCtl = !!navigator.serviceWorker.controller; let reloaded = false;
+    navigator.serviceWorker.addEventListener("controllerchange", () => {   // nuova versione pronta: ricarico da solo (se non stai scrivendo)
+      const a = document.activeElement;
+      if (!hadCtl || reloaded || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) return;
+      reloaded = true; location.reload();
+    });
+    navigator.serviceWorker.register("sw.js").then((r) => { try { r.update(); } catch { /* ignora */ } });
+  } catch { /* non essenziale */ }
+}
 boot();
 </script>
 </body>
