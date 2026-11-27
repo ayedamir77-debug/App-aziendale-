@@ -3123,6 +3123,8 @@ async function docForm(jobId) {
   async function addFiles(files) {
     for (const f of files) { try { const bmp = await createImageBitmap(f); let quad = null; try { quad = detectDoc(bmp); } catch { /* resta tutta la foto */ } pages.push({ bmp, rot: 0, quad, auto: !!quad }); } catch { alert("Immagine non valida."); } }
     analyzed = false; drawScan(); upName();
+    const askCrop = (list, k) => { if (k >= list.length) return; const p = list[k]; p.asked = true; cropEditor(p.bmp, null, (nq) => { p.quad = nq; p.auto = false; analyzed = false; drawScan(); askCrop(list, k + 1); }); };
+    const miss = pages.filter((p) => !p.quad && !p.asked); if (miss.length) askCrop(miss, 0);
   }
   const camIn = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
   const galIn = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: async (e) => { await addFiles([...e.target.files]); e.target.value = ""; } });
