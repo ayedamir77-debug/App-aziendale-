@@ -888,7 +888,32 @@ async function reportForm(sub) {
       return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, ph, tidy), pick, m.st);
     })(),
     h("div", { class: "muted", style: "font-size:13px;margin:2px 0 4px" }, "Se non manca più niente, lascia vuoto."),
-    h("h2", {}, "Materiale usato"), matBox,
+    h("h2", {}, "Materiale usato"),
+    (() => {
+      const st = h("p", { class: "muted" }), pick = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" });
+      const btn = h("button", { type: "button", class: "primary", style: "margin-top:0", onclick: () => { if (!co().ai_enabled) { st.textContent = "Per leggere la bolla serve l'assistente IA: il titolare lo accende dalle impostazioni."; return; } pick.click(); } }, "🧾 Foto della bolla o scontrino");
+      pick.onchange = async () => {
+        const files = [...pick.files].slice(0, 5); pick.value = ""; if (!files.length) return;
+        btn.disabled = true; let added = 0, attached = 0; const jid = $("r_job") && $("r_job").value, okJob = jid && !jid.startsWith("client:");
+        try {
+          for (let i = 0; i < files.length; i++) {
+            st.textContent = "Leggo la bolla " + (i + 1) + " di " + files.length + "… qualche secondo.";
+            const f = files[i], bmp = await createImageBitmap(f), k = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas"); c.width = Math.round(bmp.width * k); c.height = Math.round(bmp.height * k); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+            const r = await aiCall({ task: "doc", mime: "image/jpeg", b64: await toB64(await new Promise((rs) => c.toBlob(rs, "image/jpeg", 0.85))), ownName: (co().name || "") });
+            let bid = null, bt = null;
+            if (okJob) { try { bid = await uploadDoc(f, "bolla", "", jid, { party: r.party || "", number: r.number || "", date: /^\d{4}-\d{2}-\d{2}$/.test(r.date || "") ? r.date : null }); bt = "Bolla" + (r.party ? " " + r.party : "") + (r.number ? " n. " + r.number : ""); attached++; } catch { /* la bolla non si salva, il materiale sì */ } }
+            const it = (Array.isArray(r.items) ? r.items : []).filter((x) => x && x.desc);
+            if (it.length && mats.length === 1 && !mats[0].desc && mats[0].qty == null) mats.length = 0;
+            for (const x of it) { mats.push({ desc: String(x.desc).trim(), qty: x.qty != null && x.qty !== "" ? Number(x.qty) : null, unit: x.unit || "", src: "comprato", ...(bid ? { bolla_id: bid, bolla_title: bt } : {}) }); added++; }
+          }
+          if (okJob) await loadBolle(); else drawMats(); stash();
+          st.textContent = added ? "Fatto: " + added + (added === 1 ? " voce" : " voci") + " dalla bolla" + (attached ? ", bolla salvata nel lavoro" : "") + ". Controlla quantità e unità." + (okJob ? "" : " Scegli il lavoro in alto per allegare anche la bolla.") : "Non ho trovato righe di materiale. Prova con una foto più vicina e dritta.";
+        } catch (e) { drawMats(); st.textContent = "Non riesco: " + (e.message || e); }
+        btn.disabled = false;
+      };
+      return h("div", {}, btn, pick, st);
+    })(),
+    matBox,
     h("button", { class: "secondary", style: "width:100%", onclick: () => { mats.push({ desc: "", qty: null, unit: "", src: "nostro" }); drawMats(); } }, "+ Aggiungi materiale"),
     h("button", { class: "primary", onclick: async (e) => {
       e.target.disabled = true;
