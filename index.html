@@ -18,9 +18,6 @@ p{margin:0 0 10px;line-height:1.45;color:#4E5A66}
 .logo{width:44px;height:44px;border-radius:12px;background:#02175A;color:#FFB800;display:flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;flex:none}
 .logo img{width:100%;height:100%;object-fit:contain;background:#fff}
 .hero{border-bottom:4px solid #FFB800;background:linear-gradient(135deg,#02175A 0%,#0A2A8F 100%);color:#fff;border-radius:16px;padding:16px;margin:6px 0 4px;position:relative;overflow:hidden}
-.wkchip[data-on="1"]::before{content:"● ";color:#2E9E4F}
-.wkfab{flex:0 0 64px;width:64px;height:64px;border-radius:50%;padding:0;font-size:28px;background:#02175A;color:#fff;border:3px solid #FFB800;touch-action:none;user-select:none;-webkit-user-select:none;margin-top:6px}.wkfab.off{background:#6B7580}.wkfab.rec{background:#C62828}
-.wktalk{width:100%;height:120px;font-size:20px;border-radius:18px;background:#02175A;color:#fff;margin:6px 0 12px;touch-action:none;user-select:none;-webkit-user-select:none;border-bottom:5px solid #FFB800}.wktalk.rec{background:#C62828;border-bottom-color:#FFB800}
 .hero .nm{font-size:18px;font-weight:700;line-height:22px}
 .hero .tg{font-size:12px;opacity:.8;margin-top:2px}
 .hero .ico{display:flex;gap:10px;font-size:20px;margin-top:12px;opacity:.95}
@@ -368,7 +365,7 @@ window.addEventListener("popstate", () => {
   const x = S.stack.pop();
   if (x) { S.tab = x.tab; S.sub = x.sub; render(); }
 });
-const logout = () => { try { wkStop(); } catch { /* ignora */ } return sb.auth.signOut(); };
+const logout = () => sb.auth.signOut();
 
 /* ---------- accesso e registrazione ---------- */
 let mode = "login";
@@ -475,7 +472,7 @@ function menuGroups() {
     ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock")])],
     ["Squadra", A([G("💬", "Chat", "chat"), G("📣", "Bacheca", "posts"), own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null])],
     ["Mezzi e scadenze", A([G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr")])],
-    ["Strumenti", A([G("🎙️", "Walkie-talkie", "walkie"), G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🔎", "Cerca", "search"), G("🔔", "Novità", "news"), G("📻", "Radio", "radio"), G("🤖", "Assistente IA", "extra"), G("ℹ️", "Info", "info")])]
+    ["Strumenti", A([G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🔎", "Cerca", "search"), G("🔔", "Novità", "news"), G("📻", "Radio", "radio"), G("🤖", "Assistente IA", "extra"), G("ℹ️", "Info", "info")])]
   ];
 }
 const menuGo = (x) => () => (x.tab ? setTab(x.tab) : go({ t: x.sub }));
@@ -1266,86 +1263,6 @@ async function jobChecklists(j) {
         h("button", { class: "ghost", style: "color:#A32121;font-size:13px", onclick: async () => { if (confirm("Eliminare la checklist?") && await attempt(async () => { chk(await sb.from("job_checklists").delete().eq("id", c.id)); })) render(); } }, "Elimina checklist")); }),
     sel];
 }
-/* ---------- walkie-talkie (messaggi vocali istantanei, con l'app aperta) ---------- */
-const WK = { ch: null, q: [], playing: false, peers: [], online: new Set(), to: "all", last: "", lock: null, rec: null };
-function wkUI() {
-  const pe = $("wkpeers"), st = $("wkstat");
-  if (pe) pe.textContent = WK.ch ? (WK.peers.length ? "Collegati: " + WK.peers.join(", ") : "Nessun altro collegato") : "";
-  if (st) st.textContent = WK.last;
-  document.querySelectorAll(".wkchip").forEach((c) => { const id = c.dataset.id; c.classList.toggle("on", id === "all" ? WK.to === "all" : WK.to !== "all" && WK.to.has(id)); if (id !== "all") c.dataset.on = WK.online.has(id) ? "1" : "0"; });
-  const tl = $("wkto"); if (tl) tl.textContent = WK.to === "all" ? "Parli a: tutti" : "Parli a: " + [...WK.to].map((i) => (S.team.find((t) => t.id === i) || {}).full_name || "collega").join(", ");
-}
-async function wkLock(on) {
-  try { if (on && navigator.wakeLock && !WK.lock) WK.lock = await navigator.wakeLock.request("screen"); else if (!on && WK.lock) { await WK.lock.release(); WK.lock = null; } } catch { /* non supportato */ }
-}
-function wkPlayNext() {
-  if (WK.playing || !WK.q.length) return;
-  const m = WK.q.shift(); WK.playing = true;
-  const done = () => { WK.playing = false; wkPlayNext(); };
-  const a = new Audio("data:" + m.mime + ";base64," + m.b64);
-  a.onended = done; a.onerror = done;
-  WK.last = "🔊 " + (m.name || "Un collega") + " sta parlando…"; wkUI();
-  a.play().catch(() => { WK.last = "Tocca lo schermo per attivare l'audio"; WK.playing = false; WK.q.unshift(m); wkUI(); });
-  a.addEventListener("ended", () => { WK.last = "Ultimo: " + (m.name || "collega") + " alle " + new Date().toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }); wkUI(); });
-}
-function wkStart() {
-  if (WK.ch || !S.p || !S.p.company_id) return;
-  const ch = sb.channel("walkie-" + S.p.company_id, { config: { broadcast: { self: false }, presence: { key: S.p.id } } });
-  ch.on("broadcast", { event: "v" }, ({ payload }) => { if (payload && payload.b64 && (!payload.to || payload.to === "all" || (Array.isArray(payload.to) && payload.to.includes(S.p.id)))) { WK.q.push(payload); wkPlayNext(); } })
-    .on("presence", { event: "sync" }, () => { const ps = ch.presenceState(); WK.online = new Set(Object.keys(ps).filter((k) => k !== S.p.id)); WK.peers = [...WK.online].map((k) => (ps[k][0] && ps[k][0].name) || "collega"); wkUI(); })
-    .subscribe(async (st) => { if (st === "SUBSCRIBED") { try { await ch.track({ name: S.p.full_name || "collega" }); } catch { /* ignora */ } } });
-  WK.ch = ch;
-}
-function wkStop() { if (WK.ch) { try { sb.removeChannel(WK.ch); } catch { /* ignora */ } WK.ch = null; } WK.peers = []; WK.q = []; wkLock(false); wkUI(); }
-async function wkTalk(btn) {
-  if (!WK.ch) return;
-  let stream; try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); } catch { alert("Microfono non consentito: attivalo nelle impostazioni del browser."); return; }
-  const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4"].find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
-  const rec = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 24000 } : { audioBitsPerSecond: 24000 }), chunks = []; WK.rec = rec;
-  rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
-  const t0 = Date.now(); let timer = setTimeout(() => rec.state === "recording" && rec.stop(), 25000);
-  rec.onstop = async () => {
-    clearTimeout(timer); stream.getTracks().forEach((t) => t.stop()); WK.rec = null; btn.classList.remove("rec");
-    if (Date.now() - t0 < 400 || !chunks.length) { WK.last = "Troppo breve: tieni premuto mentre parli"; wkUI(); return; }
-    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" }), b64 = await toB64(blob);
-    if (b64.length > 240000) { WK.last = "Messaggio troppo lungo"; wkUI(); return; }
-    const r = await WK.ch.send({ type: "broadcast", event: "v", payload: { to: WK.to === "all" ? "all" : [...WK.to], b64, mime: (rec.mimeType || "audio/webm").split(";")[0], name: S.p.full_name || "collega" } });
-    WK.last = r === "ok" ? "✅ Inviato (" + Math.round((Date.now() - t0) / 1000) + " s)" : "Non inviato: controlla la connessione"; wkUI();
-  };
-  rec.start(); btn.classList.add("rec");
-}
-function wkRelease() { if (WK.rec && WK.rec.state === "recording") WK.rec.stop(); }
-function wkBtn() {
-  const f = h("button", { class: "wkfab" + (lk("wk_on") === "1" ? "" : " off"), "aria-label": "Walkie-talkie" }, "🎙️");
-  f.addEventListener("contextmenu", (e) => e.preventDefault());
-  f.addEventListener("pointerdown", (e) => { if (lk("wk_on") === "1") { e.preventDefault(); if (!WK.ch) wkStart(); wkTalk(f); } });
-  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) f.addEventListener(ev, wkRelease);
-  f.addEventListener("click", () => { if (lk("wk_on") !== "1") go({ t: "walkie" }); });
-  return f;
-}
-async function walkieView() {
-  const on = lk("wk_on") === "1", tm = (await team0()).filter((t) => t.id !== S.p.id);
-  const pick = (id) => { if (id === "all") WK.to = "all"; else { if (WK.to === "all") WK.to = new Set(); if (WK.to.has(id)) WK.to.delete(id); else WK.to.add(id); if (!WK.to.size) WK.to = "all"; } wkUI(); };
-  const chips = h("div", { class: "chips", style: "margin:12px 0 0" }, h("button", { class: "chip wkchip", "data-id": "all", onclick: () => pick("all") }, "👥 Tutti"), tm.map((t) => h("button", { class: "chip wkchip", "data-id": t.id, onclick: () => pick(t.id) }, t.full_name)));
-  const talk = h("button", { class: "wktalk", style: on ? "" : "display:none", "aria-label": "Tieni premuto e parla" }, "🎙️ Tieni premuto e parla");
-  talk.addEventListener("pointerdown", (e) => { e.preventDefault(); wkTalk(talk); });
-  for (const ev of ["pointerup", "pointercancel", "pointerleave"]) talk.addEventListener(ev, wkRelease);
-  talk.addEventListener("contextmenu", (e) => e.preventDefault());
-  const sw = h("input", { type: "checkbox", checked: on, style: "width:22px;height:22px", onchange: (e) => {
-    sk("wk_on", e.target.checked ? "1" : "0"); talk.style.display = e.target.checked ? "" : "none";
-    if (e.target.checked) { wkStart(); new Audio("data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAESsAABErAAABAAgAZGF0YQAAAAA=").play().catch(() => {}); } else wkStop(); } });
-  const awake = h("input", { type: "checkbox", style: "width:22px;height:22px", onchange: (e) => wkLock(e.target.checked) });
-  setTimeout(wkUI, 0);
-  return [h("h1", {}, "🎙️ Walkie-talkie"),
-    h("div", { class: "card" },
-      h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-size:16px" }, sw, "Walkie-talkie attivo"),
-      h("p", { class: "muted", id: "wkpeers", style: "margin:10px 0 0" }), h("p", { id: "wkstat", style: "margin:6px 0 0;font-weight:600" })),
-    h("div", { class: "card" }, h("strong", {}, "Per chi?"), h("p", { class: "muted", style: "margin:4px 0 0" }, "Scegli «Tutti» oppure tocca uno o più colleghi."), chips, h("p", { id: "wkto", style: "margin:10px 0 0;font-weight:600" })),
-    talk,
-    h("div", { class: "card" },
-      h("label", { style: "display:flex;gap:12px;align-items:center;margin:0;font-weight:500" }, awake, "Tieni lo schermo acceso (consuma più batteria)")),
-    h("div", { class: "note" }, "Tieni premuto il tasto mentre parli e lascia quando hai finito: la voce arriva subito a tutti i colleghi che hanno il walkie-talkie attivo. Funziona con l'app aperta sullo schermo; con il telefono bloccato o l'app chiusa non esce la voce. Max 25 secondi a messaggio.")];
-}
 /* ---------- notifiche sul telefono (push) ---------- */
 const PUSHFN = "send-push";
 const b64u = (b) => { const r = atob((b + "=".repeat((4 - b.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
@@ -1786,7 +1703,7 @@ async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clo
 /* ---------- elenco delle nuove pagine ---------- */
 const NEWROUTES = { trend: trendView,
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
-  chat: chatView, backup: backupView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, jobSummary: jobSummaryView, urgent: urgentView, urgentForm, walkie: walkieView, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
+  chat: chatView, backup: backupView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, jobSummary: jobSummaryView, urgent: urgentView, urgentForm, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };
 
 
@@ -1938,7 +1855,6 @@ async function boot() {
     if (error) throw error;
     if (!data) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
     S.p = data;
-    if (lk("wk_on") === "1") { try { wkStart(); } catch { /* walkie non disponibile */ } }
     if (data.role === "employee" && data.status !== "active") return waitScreen(data);
     if (data.role === "owner") await loadTeam();
     render();
@@ -3578,8 +3494,7 @@ async function homeView() {
     h("div", { style: "display:flex;align-items:flex-start;justify-content:space-between;gap:10px" },
       h("div", { style: "min-width:0" },
         h("p", { class: "muted", style: "margin:8px 0 0;text-transform:capitalize" }, now.toLocaleDateString("it-IT", { weekday: "long", day: "numeric", month: "long" })),
-        h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!")),
-      wkBtn()),
+        h("h1", { style: "margin-top:4px" }, greet + ", " + first + "!"))),
     h("p", {}, today.length ? (open.length ? "Oggi hai " + open.length + (open.length === 1 ? " lavoro" : " lavori") + " in programma." : "Tutti i lavori di oggi sono completati. Ottimo!") : "Oggi non ci sono lavori in programma.")
   ];
   nodes.push(weatherCard(), chatCard());
