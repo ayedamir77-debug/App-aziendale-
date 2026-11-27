@@ -1129,10 +1129,12 @@ async function libraryView() {
         r.url ? h("a", { class: "link", href: r.url, target: "_blank", rel: "noopener" }, "🔗 Link") : null))) : [h("p", {}, "Niente trovato.")]));
   };
   inp.addEventListener("input", () => { q = inp.value; S.libQ = q; clearTimeout(inp._t); inp._t = setTimeout(() => load().catch(() => {}), 300); });
-  const chips = h("div", { class: "chips" });
-  const drawChips = () => chips.replaceChildren(...[["all", "Tutte"], ...LIB_CATS.map((c) => [c, c])].map(([k, l]) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { cat = k; S.libCat = k; drawChips(); load().catch(() => {}); } }, l)),
-    h("button", { class: "chip" + (favOnly ? " on" : ""), onclick: () => { favOnly = !favOnly; S.libFav = favOnly; drawChips(); load().catch(() => {}); } }, "★ Preferiti"));
+  const chips = h("div", { class: "chips" }); let allC = [...LIB_CATS];
+  const drawChips = () => chips.replaceChildren(...[["all", "Tutte"], ...allC.map((c) => [c, c])].map(([k, l]) => h("button", { class: "chip" + (cat === k ? " on" : ""), onclick: () => { cat = k; S.libCat = k; drawChips(); load().catch(() => {}); } }, l)),
+    h("button", { class: "chip" + (favOnly ? " on" : ""), onclick: () => { favOnly = !favOnly; S.libFav = favOnly; drawChips(); load().catch(() => {}); } }, "★ Preferiti"),
+    h("button", { class: "chip", onclick: () => { const n = titleCase(prompt("Nome della nuova categoria:") || ""); if (!n) return; S.libNewCat = n; go({ t: "libForm" }); } }, "➕ Aggiungi categoria"));
   drawChips(); setTimeout(() => load().catch(() => {}), 0);
+  setTimeout(async () => { try { for (const x of chk(await sb.from("library").select("category"))) if (x.category && !allC.includes(x.category)) allC.push(x.category); drawChips(); } catch { /* resta l'elenco base */ } }, 0);
   return [h("h1", {}, "Biblioteca tecnica"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "libForm" }) }, "+ Aggiungi scheda o manuale"), h("div", { style: "margin-top:12px" }, inp), chips, list];
 }
 function pickPages(txt, q) {
@@ -1145,6 +1147,13 @@ function pickPages(txt, q) {
 async function libForm(sub) {
   const r = sub.id ? chk(await sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name,ocr_text").eq("id", sub.id).single()) : {};
   const say = h("p", { class: "muted" });
+  let cats = [...LIB_CATS];
+  try { for (const x of chk(await sb.from("library").select("category"))) if (x.category && !cats.includes(x.category)) cats.push(x.category); } catch { /* resta l'elenco base */ }
+  const curC = r.category || S.libNewCat || "Centraline"; S.libNewCat = "";
+  if (!cats.includes(curC)) cats.push(curC);
+  const newC = h("input", { id: "l_cn", placeholder: "Nome della nuova categoria", style: "display:none;margin-top:8px" });
+  const selC = h("select", { id: "l_c", onchange: () => { newC.style.display = selC.value === "__new" ? "block" : "none"; if (selC.value === "__new") newC.focus(); } },
+    cats.map((c) => h("option", { value: c, selected: c === curC }, c)), h("option", { value: "__new" }, "➕ Aggiungi categoria…"));
   const pgs = [], plist = h("div");
   const drawP = () => plist.replaceChildren(...pgs.map((f, i) => {
     const im = f.type.startsWith("image/") ? h("img", { src: URL.createObjectURL(f), style: "width:48px;height:64px;object-fit:cover;border-radius:6px;border:1px solid #D5DADF" }) : h("span", { style: "font-size:28px" }, "📄");
@@ -1162,7 +1171,7 @@ async function libForm(sub) {
       h("button", { class: "secondary", style: "width:100%;margin-top:8px", onclick: async (e) => { const q = qi.value.trim(); if (!q) return; e.target.disabled = true; await attempt(async () => { const x = await aiCall({ task: "ask", question: q, context: "Manuale «" + (r.title || "") + "»:\n" + pickPages(r.ocr_text, q) }); ans.style.display = "block"; ans.textContent = x.text || "Nessuna risposta."; }); e.target.disabled = false; } }, "Chiedi"), ans);
   })() : null;
   return [h("h1", {}, sub.id ? "Scheda" : "Nuova scheda"),
-    h("label", { for: "l_c" }, "Categoria"), h("input", { id: "l_c", value: r.category || "Centraline", list: "dl_lc" }), h("datalist", { id: "dl_lc" }, LIB_CATS.map((c) => h("option", { value: c }))),
+    h("label", { for: "l_c" }, "Categoria"), selC, newC,
     h("div", { class: "sp" }, h("div", {}, h("label", { for: "l_b" }, "Marca"), h("input", { id: "l_b", value: r.brand || "" })), h("div", {}, h("label", { for: "l_m" }, "Modello"), h("input", { id: "l_m", value: r.model || "" }))),
     h("label", { for: "l_t" }, "Titolo"), h("input", { id: "l_t", value: r.title || "", placeholder: "Es. Istruzioni programmazione" }),
     h("label", { for: "l_n" }, "Note tue (trucchi, errori comuni…)"), h("textarea", { id: "l_n", rows: "4" }, r.note || ""),
@@ -1174,7 +1183,7 @@ async function libForm(sub) {
     cbox("l_ocr", "Leggi il testo di tutte le pagine per poterlo cercare", true), say,
     h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
       const title = $("l_t").value.trim(); if (!title) throw new Error("Scrivi il titolo");
-      const row = { category: $("l_c").value.trim() || "Altro", brand: $("l_b").value.trim() || null, model: $("l_m").value.trim() || null, title, note: $("l_n").value.trim() || null, url: $("l_u").value.trim() || null };
+      const row = { category: ($("l_c").value === "__new" ? titleCase($("l_cn").value) : $("l_c").value) || "Altro", brand: $("l_b").value.trim() || null, model: $("l_m").value.trim() || null, title, note: $("l_n").value.trim() || null, url: $("l_u").value.trim() || null };
       let f = pgs[0], pdfOcr = "";
       if (pgs.length > 1) {
         if (!pgs.every((x) => x.type.startsWith("image/"))) throw new Error("Metti insieme solo foto, oppure un solo PDF");
