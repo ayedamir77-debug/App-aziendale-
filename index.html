@@ -1904,6 +1904,7 @@ async function boot() {
     const { data, error } = await sb.from("profiles").select("*, companies(*)").eq("id", session.user.id).maybeSingle();
     if (error) throw error;
     if (!data) { show(h("h1", {}, "Profilo non trovato"), h("p", {}, "Esci e registrati di nuovo."), h("button", { class: "ghost", onclick: logout }, "Esci")); return; }
+    if (session.user.email) data.email = session.user.email;   // l'email di accesso vera, non la copia nel profilo
     S.p = data;
     if (data.role === "employee" && data.status !== "active") return waitScreen(data);
     if (data.role === "owner") await loadTeam();
