@@ -869,7 +869,23 @@ async function reportForm(sub) {
         } catch (e) { m.st.textContent = "Non riesco: " + (e.message || e); }
         tidy.disabled = false;
       };
-      return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, tidy), m.st);
+      const pick = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none" });
+      const ph = h("button", { class: "secondary", style: "flex:1" }, "📷 Foto");
+      ph.onclick = () => { if (!co().ai_enabled) { m.st.textContent = "Per leggere le foto serve l'assistente IA: il titolare lo accende dalle impostazioni."; return; } pick.click(); };
+      pick.onchange = async () => {
+        const files = [...pick.files].slice(0, 3); pick.value = ""; if (!files.length) return;
+        ph.disabled = true; m.st.textContent = "Leggo la foto… qualche secondo.";
+        try {
+          const images = [];
+          for (const f of files) { const bmp = await createImageBitmap(f), r = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); images.push({ mime: "image/jpeg", b64: await toB64(await new Promise((rs) => c.toBlob(rs, "image/jpeg", 0.85))) }); }
+          const r = await aiCall({ task: "sketch", text: "", images });
+          const L = (Array.isArray(r.items) ? r.items : []).filter((x) => x && x.desc).map((x) => ((x.qty != null && x.qty !== "" ? x.qty + (x.unit ? " " + x.unit : "") + " " : "") + x.desc).trim());
+          if (L.length) { const cur = $("r_miss").value.trim(); $("r_miss").value = (cur ? cur + ", " : "") + L.join(", "); missTouched = true; m.st.textContent = "Fatto: " + L.length + (L.length === 1 ? " voce." : " voci.") + " Controlla e correggi se serve."; }
+          else m.st.textContent = "Non ho trovato materiale nella foto. Prova con una foto più vicina.";
+        } catch (e) { m.st.textContent = "Non riesco: " + (e.message || e); }
+        ph.disabled = false;
+      };
+      return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, ph, tidy), pick, m.st);
     })(),
     h("div", { class: "muted", style: "font-size:13px;margin:2px 0 4px" }, "Se non manca più niente, lascia vuoto."),
     h("h2", {}, "Materiale usato"), matBox,
