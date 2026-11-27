@@ -469,7 +469,7 @@ function menuGroups() {
   return [
     ["Lavoro", A([G("📈", "Andamento", "trend"), G("🛒", "Materiale che manca", "manca"), T("🔧", "Lavori", "jobs"), T("📅", "Agenda", "cal"), T("👤", "Clienti", "clients"), G("📝", "Rapportini", "reports"), G("🚨", "Urgenti", "urgent")])],
     ["Documenti e soldi", A([T("🗂️", "Documenti", "docs"), own ? T("💼", "Ufficio", "office") : null, own ? G("✉️", "Solleciti", "chase") : null])],
-    ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock"), G("🧰", "Lista materiali", "matai")])],
+    ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock"), G("🧰", "Lista materiali", "matai"), G("📐", "Appunti e schemi", "sketch")])],
     ["Squadra", A([G("💬", "Chat", "chat"), G("📣", "Bacheca", "posts"), own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null])],
     ["Mezzi e scadenze", A([G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr")])],
     ["Strumenti", A([G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🔎", "Cerca", "search"), G("🔔", "Novità", "news"), G("📻", "Radio", "radio"), G("🤖", "Assistente IA", "extra"), G("ℹ️", "Info", "info")])]
@@ -1333,6 +1333,72 @@ async function missingView() {
         h("button", { class: "secondary", style: "width:100%", onclick: async (e) => { e.target.disabled = true; if (await attempt(async () => { const cur = chk(await sb.from("jobs").select("description").eq("id", j.id).single()); chk(await sb.from("jobs").update({ description: (cur.description || "").replace(/\n?🛒 MANCA:?.*/, "").trim() || null }).eq("id", j.id)); })) render(); else e.target.disabled = false; } }, "✔ Preso, non manca più"))))) : h("p", {}, "Niente da comprare: nessun lavoro ha materiale che manca. 👍")];
 }
 
+/* ---------- appunti e schemi: la foto di un appunto diventa elenco materiale + schema in ordine ---------- */
+const SK_ICON = { rete: "🌐", contatore: "⏱️", quadro: "🗄️", interruttore: "⏻", fv: "☀️", inverter: "🔄", batteria: "🔋", wallbox: "🚗", scaricatore: "⚡", terra: "⏚", carico: "🏠", altro: "▫️" };
+function sketchSvg(dg) {
+  const nodes = (dg.nodes || []).filter((n) => n && n.id != null).map((n) => ({ id: String(n.id), label: String(n.label || "").slice(0, 40), type: SK_ICON[n.type] ? n.type : "altro", lv: 0 }));
+  const byId = Object.fromEntries(nodes.map((n) => [n.id, n])), links = (dg.links || []).filter((l) => l && byId[String(l.from)] && byId[String(l.to)] && String(l.from) !== String(l.to)).map((l) => ({ from: String(l.from), to: String(l.to), label: l.label ? String(l.label).slice(0, 24) : "" }));
+  for (let it = 0; it < nodes.length + 1; it++) { let ch = false; for (const l of links) { if (byId[l.to].lv <= byId[l.from].lv && byId[l.from].lv < nodes.length) { byId[l.to].lv = byId[l.from].lv + 1; ch = true; } } if (!ch) break; }
+  const rows = []; for (const n of nodes) (rows[n.lv] = rows[n.lv] || []).push(n);
+  const W = 150, H = 56, GX = 26, GY = 62, maxN = Math.max(1, ...rows.filter(Boolean).map((r) => r.length)), vw = maxN * (W + GX) + GX, vh = rows.length * (H + GY) + GY - 20;
+  const pos = {}; rows.forEach((r, ri) => { if (!r) return; const tw = r.length * W + (r.length - 1) * GX, x0 = (vw - tw) / 2; r.forEach((n, i) => { pos[n.id] = { x: x0 + i * (W + GX), y: GY / 2 + ri * (H + GY) }; }); });
+  const esc = (x) => String(x).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const wrap = (t) => { const w = t.split(/\s+/), a = [""]; for (const x of w) { if ((a[a.length - 1] + " " + x).trim().length > 17 && a[a.length - 1]) a.push(x); else a[a.length - 1] = (a[a.length - 1] + " " + x).trim(); } return a.slice(0, 2); };
+  let g = "";
+  for (const l of links) { const a = pos[l.from], b = pos[l.to], x1 = a.x + W / 2, y1 = a.y + H, x2 = b.x + W / 2, y2 = b.y, my = y1 + (y2 - y1) / 2; g += `<path d="M${x1} ${y1} V${my} H${x2} V${y2 - 2}" fill="none" stroke="#33424F" stroke-width="2" marker-end="url(#ar)"/>`; if (l.label) g += `<text x="${(x1 + x2) / 2 + 4}" y="${my - 4}" font-size="11" fill="#4E5A66">${esc(l.label)}</text>`; }
+  for (const n of nodes) { const p = pos[n.id]; const ls = wrap(n.label); g += `<rect x="${p.x}" y="${p.y}" width="${W}" height="${H}" rx="10" fill="#fff" stroke="#0B1F5C" stroke-width="2"/><text x="${p.x + 10}" y="${p.y + 34}" font-size="22">${SK_ICON[n.type]}</text>` + ls.map((t, i) => `<text x="${p.x + 40}" y="${p.y + (ls.length > 1 ? 24 + i * 16 : 32)}" font-size="13" font-weight="600" fill="#14202B">${esc(t)}</text>`).join(""); }
+  return { svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${vw} ${vh}" width="${vw}" height="${vh}" font-family="Roboto,Arial,sans-serif"><defs><marker id="ar" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#33424F"/></marker></defs><rect width="100%" height="100%" fill="#fff"/>${g}</svg>`, w: vw, h: vh };
+}
+async function sketchView() {
+  if (!co().ai_enabled) return [h("h1", {}, "📐 Appunti e schemi"), h("div", { class: "note" }, "Serve l'assistente IA: il titolare lo accende dalle impostazioni.")];
+  const jobs = chk(await sb.from("jobs").select("id,title,status,clients(name)").neq("status", "done").neq("status", "void").order("created_at", { ascending: false }).limit(400));
+  let imgs = [], res = null, items = [];
+  const ta = h("textarea", { rows: "3", placeholder: "Facoltativo: scrivi qui cosa correggere o aggiungere (es. «la wallbox è sul quadro AC»)." });
+  const say = h("p", { class: "muted", style: "margin:8px 0 0" });
+  const thumbs = h("div", { style: "display:flex;gap:8px;flex-wrap:wrap;margin-top:10px" });
+  const drawThumbs = () => thumbs.replaceChildren(...imgs.map((im, i) => h("div", { style: "position:relative" }, h("img", { src: im.url, alt: "", style: "width:84px;height:84px;object-fit:cover;border-radius:10px;border:1px solid #DDE2E6" }), h("button", { class: "ghost", "aria-label": "Togli", style: "position:absolute;top:-8px;right:-8px;width:28px;height:28px;padding:0;border-radius:50%;background:#fff;border:1px solid #ccc", onclick: () => { imgs.splice(i, 1); drawThumbs(); } }, "✕"))));
+  const addFiles = async (files) => { for (const f of [...files]) { if (imgs.length >= 3) { say.textContent = "Al massimo 3 foto."; break; } try { const bmp = await createImageBitmap(f), r = Math.min(1, 1800 / Math.max(bmp.width, bmp.height)), c = document.createElement("canvas"); c.width = Math.round(bmp.width * r); c.height = Math.round(bmp.height * r); c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height); const blob = await new Promise((rs) => c.toBlob(rs, "image/jpeg", 0.85)); imgs.push({ blob, url: URL.createObjectURL(blob) }); } catch { say.textContent = "Una foto non si è aperta."; } } drawThumbs(); };
+  const cam = h("input", { type: "file", accept: "image/*", capture: "environment", style: "display:none", onchange: (e) => { addFiles(e.target.files); e.target.value = ""; } });
+  const gal = h("input", { type: "file", accept: "image/*", multiple: true, style: "display:none", onchange: (e) => { addFiles(e.target.files); e.target.value = ""; } });
+  const out = h("div");
+  const jp = jobPick("sk_job", jobs, "", null, null), msg = h("p", { class: "muted", style: "margin:8px 0 0" });
+  let svgInfo = null;
+  async function svgBlob() { const im = new Image(); const url = URL.createObjectURL(new Blob([svgInfo.svg], { type: "image/svg+xml" })); await new Promise((ok, ko) => { im.onload = ok; im.onerror = ko; im.src = url; }); const c = document.createElement("canvas"); c.width = svgInfo.w * 2; c.height = svgInfo.h * 2; const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height); URL.revokeObjectURL(url); return new Promise((ok) => c.toBlob(ok, "image/png")); }
+  const draw = () => {
+    if (!res) { out.replaceChildren(); return; }
+    const kids = [];
+    if (res.title) kids.push(h("h2", {}, res.title));
+    if (svgInfo) kids.push(h("h2", {}, "Schema"), h("div", { class: "card", style: "padding:8px;overflow:auto" }, (() => { const d = h("div"); d.innerHTML = svgInfo.svg.replace(/width="\d+" height="\d+"/, 'style="width:100%;height:auto;min-width:' + Math.min(svgInfo.w, 340) + 'px"'); return d; })()),
+      h("div", { class: "muted", style: "font-size:13px;margin:6px 0" }, "Non è giusto? Scrivi la correzione in alto e premi «Rifai»."));
+    if (items.length) kids.push(h("h2", {}, "Materiale (" + items.length + ")"), ...items.map((it, i) => h("div", { class: "card", style: "padding:10px 12px" }, h("input", { value: it.desc, oninput: (e) => { it.desc = e.target.value; } }),
+      h("div", { style: "display:grid;grid-template-columns:1fr 1fr auto;gap:8px;margin-top:8px" }, h("input", { type: "number", inputmode: "decimal", step: "any", placeholder: "Quantità", value: it.qty == null ? "" : it.qty, oninput: (e) => { it.qty = e.target.value === "" ? null : Number(e.target.value); } }), h("input", { placeholder: "Unità", value: it.unit || "", oninput: (e) => { it.unit = e.target.value; } }), h("button", { class: "ghost", "aria-label": "Elimina", onclick: () => { items.splice(i, 1); draw(); } }, "✕")))));
+    if ((res.notes || []).length) kids.push(h("h2", {}, "Note"), h("div", { class: "card" }, h("ul", { style: "margin:0 0 0 18px;padding:0" }, res.notes.map((n) => h("li", {}, String(n))))));
+    if ((res.unclear || []).length) kids.push(h("div", { class: "note" }, h("strong", {}, "Da controllare: "), res.unclear.map(String).join(" · ")));
+    if (items.length || svgInfo) kids.push(h("div", { class: "card" }, h("label", { style: "margin-top:0" }, "In quale lavoro?"), jp,
+      items.length ? h("button", { class: "primary", style: "width:100%;margin-top:10px", onclick: async (e) => { const jid = $("sk_job").value, rows = items.filter((x) => x.desc.trim()); if (!jid) { msg.textContent = "Scegli prima il lavoro."; return; } e.target.disabled = true; try { chk(await sb.from("job_materials").insert(rows.map((x) => ({ job_id: jid, company_id: S.p.company_id, description: x.desc.trim(), quantity: x.qty, unit: (x.unit || "").trim() || null, added_by: S.p.id })))); msg.textContent = "✅ Messi " + rows.length + " materiali nel lavoro."; } catch (er) { msg.textContent = "Non salvato: " + (er.message || er); } e.target.disabled = false; } }, "➕ Metti il materiale nel lavoro") : null,
+      svgInfo ? h("button", { class: "secondary", style: "width:100%;margin-top:10px", onclick: async (e) => { const jid = $("sk_job").value; if (!jid) { msg.textContent = "Scegli prima il lavoro."; return; } e.target.disabled = true; try { const b = await svgBlob(); await uploadDoc(new File([b], "schema.png", { type: "image/png" }), "altro", "Schema", jid, {}); msg.textContent = "✅ Schema salvato nei documenti del lavoro."; } catch (er) { msg.textContent = "Non salvato: " + (er.message || er); } e.target.disabled = false; } }, "📐 Salva lo schema nel lavoro") : null,
+      svgInfo ? h("button", { class: "ghost", style: "width:100%;margin-top:6px", onclick: async () => { const b = await svgBlob(), a = document.createElement("a"); a.href = URL.createObjectURL(b); a.download = "schema.png"; a.click(); } }, "⬇️ Scarica lo schema") : null, msg));
+    out.replaceChildren(...kids);
+  };
+  const run = h("button", { class: "primary", style: "width:100%;margin-top:12px" }, "✨ Leggi e riordina");
+  run.onclick = async () => {
+    if (!imgs.length) { say.textContent = "Aggiungi prima la foto dell'appunto."; return; }
+    run.disabled = true; say.textContent = "Leggo l'appunto… può servire mezzo minuto."; run.textContent = "✨ Leggi e riordina";
+    try {
+      const images = []; for (const im of imgs) images.push({ mime: "image/jpeg", b64: await toB64(im.blob) });
+      const r = await aiCall({ task: "sketch", text: ta.value.trim(), images });
+      res = r; items = (Array.isArray(r.items) ? r.items : []).filter((x) => x && x.desc).map((x) => ({ desc: String(x.desc), qty: numOrNull(x.qty), unit: x.unit ? String(x.unit) : "" }));
+      svgInfo = r.diagram && Array.isArray(r.diagram.nodes) && r.diagram.nodes.length ? sketchSvg(r.diagram) : null;
+      say.textContent = "Fatto. Controlla qui sotto."; run.textContent = "🔁 Rifai con la correzione"; draw();
+    } catch (e) { say.textContent = "Non riesco: " + (/non valida/i.test(String(e.message)) ? "la funzione IA su Supabase non è ancora aggiornata." : (e.message || e)); }
+    run.disabled = false;
+  };
+  return [h("h1", {}, "📐 Appunti e schemi"),
+    h("div", { class: "note", style: "margin-top:0" }, "Fotografa un appunto scritto a mano: leggo la lista del materiale e rifaccio lo schizzo in uno schema in ordine. Poi metti tutto nel lavoro."),
+    h("div", { class: "card" }, h("div", { style: "display:grid;grid-template-columns:1fr 1fr;gap:10px" }, h("button", { class: "secondary", onclick: () => cam.click() }, "📷 Scatta foto"), h("button", { class: "secondary", onclick: () => gal.click() }, "🖼️ Scegli foto")), cam, gal, thumbs, h("div", { style: "margin-top:10px" }, ta), run, say),
+    out];
+}
+
 /* ---------- notifiche sul telefono (push) ---------- */
 const PUSHFN = "send-push";
 const b64u = (b) => { const r = atob((b + "=".repeat((4 - b.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")); return Uint8Array.from([...r].map((c) => c.charCodeAt(0))); };
@@ -1772,7 +1838,7 @@ async function clockIn(job) { const p = await posArgs(); chk(p ? await sb.rpc("c
 async function clockOut() { const p = await posArgs(); chk(p ? await sb.rpc("clock_out_pos", { p_lat: p.lat, p_lng: p.lng }) : await sb.rpc("clock_out")); }
 
 /* ---------- elenco delle nuove pagine ---------- */
-const NEWROUTES = { trend: trendView, manca: missingView, matai: matListView,
+const NEWROUTES = { trend: trendView, sketch: sketchView, manca: missingView, matai: matListView,
   reports: reportsView, reportForm, stock: stockView, stockForm, stockImport: async () => stockImport(), library: libraryView, libForm, assets: assetsView, assetForm,
   chat: chatView, backup: backupView, warr: warrView, chase: chaseView, vehicles: vehiclesView, vehicle: vehicleView, vehForm, vdlForm, fuelForm, warrForm, posts: postsView, leave: leaveView, km: kmView, tpls: tplsView, profile: profileView, docView, jobSummary: jobSummaryView, urgent: urgentView, urgentForm, signoff: signoffView, radio: radioView, search: searchView, news: newsView, extra: extraView, info: async () => infoView()
 };

@@ -96,6 +96,23 @@ Deno.serve(async (req) => {
         : await askClaude([{ type: "text", text: prompt }], system, 800);
       return json({ text });
     }
+    if (body.task === "sketch") {
+      const txt = String(body.text || "").slice(0, 4000);
+      const imgs = (Array.isArray(body.images) ? body.images : []).slice(0, 3).filter((x: { mime?: string; b64?: string }) => x && ["image/jpeg", "image/png"].includes(String(x.mime)) && String(x.b64 || "").length < 8_000_000);
+      if (!imgs.length) return json({ error: "Manca la foto" }, 400);
+      const system = "Sei l'assistente di un'azienda di impianti elettrici e fotovoltaici. Leggi appunti scritti a mano e schizzi di impianti. Rispondi solo in JSON.";
+      const prompt = `Leggi gli appunti nella foto (scritti a mano, in italiano, ambito impianti elettrici/fotovoltaici/colonnine).${txt.trim() ? "\nCorrezioni o note dell'installatore (hanno la precedenza su quello che leggi):\n" + txt : ""}
+Rispondi SOLO con JSON:
+{"title": string|null, "items":[{"desc":string,"qty":number|null,"unit":string|null}], "notes":[string], "unclear":[string], "diagram": null | {"nodes":[{"id":string,"label":string,"type":"rete|contatore|quadro|interruttore|fv|inverter|batteria|wallbox|scaricatore|terra|carico|altro"}],"links":[{"from":string,"to":string,"label":string|null}]}}
+- "items": solo materiale da fornire/comprare (con quantità e unità solo se scritte; i numeri barrati non contano).
+- "notes": altre indicazioni scritte (tipo di posa, armadio, intestazione cliente/luogo).
+- "diagram": solo se c'è uno schizzo. Un nodo per ogni elemento disegnato, con il nome scritto accanto; i collegamenti vanno dall'alto (alimentazione, rete o contatore) verso i carichi. Non inventare elementi non disegnati.
+- "unclear": cosa non hai potuto leggere con sicurezza (scrivi il punto, non scusarti).`;
+      const text = provider === "gemini"
+        ? await askGemini([...imgs.map((x: { mime: string; b64: string }) => ({ inlineData: { mimeType: x.mime, data: x.b64 } })), { text: prompt }], system, true)
+        : await askClaude([...imgs.map((x: { mime: string; b64: string }) => ({ type: "image", source: { type: "base64", media_type: x.mime, data: x.b64 } })), { type: "text", text: prompt }], system, 2500);
+      return json(parseJson(text));
+    }
     if (body.task === "report") {
       const t = String(body.text || "").slice(0, 6000);
       const names = String(body.team || "").slice(0, 600);
