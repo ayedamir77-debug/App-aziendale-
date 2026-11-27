@@ -851,6 +851,26 @@ async function reportForm(sub) {
     h("div", { class: "muted", style: "font-size:13px;margin:2px 0 4px" }, "Se non resta più niente da fare, lascia vuoto: nel lavoro sparisce l'avviso «Da tornare»."),
     h("label", { for: "r_miss" }, "🛒 Materiale che manca (facoltativo)"),
     h("textarea", { id: "r_miss", rows: "3", oninput: () => { missTouched = true; }, placeholder: "Es. 20 m cavo 3x1,5, 2 prese bticino, motore cancello. Si aggiorna anche nel lavoro e nella lista «Materiale che manca»." }, missInit),
+    (() => {
+      const mf = { get value() { return $("r_miss").value; }, set value(v) { $("r_miss").value = v; } };
+      const m = micButton(mf, () => { missTouched = true; });
+      const tidy = h("button", { class: "secondary", style: "flex:1" }, "✨ Metti in ordine");
+      tidy.onclick = async () => {
+        m.stop && m.stop();
+        const raw = $("r_miss").value.trim(); if (!raw) { m.st.textContent = "Prima scrivi o detta cosa manca."; return; }
+        tidy.disabled = true; m.st.textContent = "Sto mettendo in ordine…";
+        try {
+          if (co().ai_enabled) {
+            const r = await aiCall({ task: "report", text: "Materiale che manca: " + raw, team: "" });
+            const L = (Array.isArray(r.materials) ? r.materials : []).filter((x) => x && x.desc).map((x) => ((x.qty != null && x.qty !== "" ? x.qty + (x.unit ? " " + x.unit : "") + " " : "") + x.desc).trim());
+            if (L.length) $("r_miss").value = L.join(", "); m.st.textContent = L.length ? "Fatto. Controlla e correggi se serve." : "Non ho trovato materiale: controlla il testo.";
+          } else { $("r_miss").value = raw.split(/\n|;/).map((x) => x.trim()).filter(Boolean).join(", "); m.st.textContent = "Messo in elenco."; }
+          missTouched = true;
+        } catch (e) { m.st.textContent = "Non riesco: " + (e.message || e); }
+        tidy.disabled = false;
+      };
+      return h("div", {}, h("div", { style: "display:flex;gap:10px;margin-top:8px" }, m.btn, tidy), m.st);
+    })(),
     h("div", { class: "muted", style: "font-size:13px;margin:2px 0 4px" }, "Se non manca più niente, lascia vuoto."),
     h("h2", {}, "Materiale usato"), matBox,
     h("button", { class: "secondary", style: "width:100%", onclick: () => { mats.push({ desc: "", qty: null, unit: "", src: "nostro" }); drawMats(); } }, "+ Aggiungi materiale"),
