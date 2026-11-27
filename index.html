@@ -159,6 +159,7 @@ const dur = (ms) => { const m = Math.max(0, Math.round(ms / 60000)); return Math
 const money = (n) => Number(n).toLocaleString("it-IT", { style: "currency", currency: "EUR" });
 const addrLink = (a) => h("div", { class: "muted" }, h("a", { href: mapsUrl(a), target: "_blank", rel: "noopener", style: "color:inherit;text-decoration:underline", onclick: (e) => e.stopPropagation() }, "📍 " + a));
 const mapsUrl = (a) => "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(a);
+const titleCase = (t) => String(t || "").trim().replace(/\s+/g, " ").replace(/(^|[\s\-'’.])([a-zà-ÿ])/g, (m, p, c) => p + c.toUpperCase()).replace(/\b(Di|Del|Della|Dei|Delle|Da|De|La|Lo|Le|Il|E|Srl|Snc|Spa)\b(?!$)/g, (w, x, o) => o === 0 ? w : (w === "Srl" || w === "Snc" || w === "Spa" ? w.toUpperCase() : w.toLowerCase()));
 const telUrl = (p) => "tel:" + String(p).replace(/[^\d+]/g, "");
 const monthStart = () => { const d = new Date(); d.setDate(1); d.setHours(0, 0, 0, 0); return d; };
 const sameDay = (a, b) => a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
@@ -467,12 +468,11 @@ function menuGroups() {
   const own = OWNER(), T = (ic, l, k) => ({ ic, l, tab: k }), G = (ic, l, t) => ({ ic, l, sub: t });
   const A = (a) => a.filter(Boolean);
   return [
-    ["Lavoro", A([G("📈", "Andamento", "trend"), G("🛒", "Materiale che manca", "manca"), T("🔧", "Lavori", "jobs"), T("📅", "Agenda", "cal"), T("👤", "Clienti", "clients"), G("📝", "Rapportini", "reports"), G("🚨", "Urgenti", "urgent")])],
+    ["Lavoro", A([G("📈", "Andamento", "trend"), T("🔧", "Lavori", "jobs"), T("📅", "Agenda", "cal"), T("👤", "Clienti", "clients"), G("📝", "Rapportini", "reports"), G("🚨", "Urgenti", "urgent"), G("🛒", "Materiale che manca", "manca")])],
     ["Documenti e soldi", A([T("🗂️", "Documenti", "docs"), own ? T("💼", "Ufficio", "office") : null, own ? G("✉️", "Solleciti", "chase") : null])],
-    ["Tecnica", A([G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets"), G("📦", "Magazzino", "stock"), G("🧰", "Lista materiali", "matai"), G("📐", "Appunti e schemi", "sketch")])],
-    ["Squadra", A([G("💬", "Chat", "chat"), G("📣", "Bacheca", "posts"), own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null])],
-    ["Mezzi e scadenze", A([G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr")])],
-    ["Strumenti", A([G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🔎", "Cerca", "search"), G("🔔", "Novità", "news"), G("📻", "Radio", "radio"), G("🤖", "Assistente IA", "extra"), G("ℹ️", "Info", "info")])]
+    ["Tecnica", A([G("🧰", "Lista materiali", "matai"), G("📐", "Appunti e schemi", "sketch"), G("📦", "Magazzino", "stock"), G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets")])],
+    ["Squadra", A([own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null, G("💬", "Chat", "chat")])],
+    ["Altro", A([G("🔎", "Cerca", "search"), G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🤖", "Assistente IA", "extra"), G("🔔", "Novità", "news"), G("📣", "Bacheca", "posts"), G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr"), G("📻", "Radio", "radio"), G("ℹ️", "Info", "info")])]
   ];
 }
 const menuGo = (x) => () => (x.tab ? setTab(x.tab) : go({ t: x.sub }));
@@ -1014,7 +1014,7 @@ async function urgentForm() {
   return [
     h("h1", {}, "🚨 Intervento urgente"),
     h("label", { for: "u_c" }, "Cliente"), h("select", { id: "u_c" }, h("option", { value: "" }, "— nessuno —"), clientsL.map((c) => h("option", { value: c.id }, c.name))),
-    h("label", { for: "u_cn" }, "Oppure solo il nome (cliente occasionale)"), h("input", { id: "u_cn", placeholder: "Es. Signor Rossi — non resta in elenco clienti" }),
+    h("label", { for: "u_cn" }, "Oppure scrivi il nome di un cliente nuovo"), h("input", { id: "u_cn", placeholder: "Es. Mario Rossi — viene salvato tra i clienti" }),
     h("label", { for: "u_ad" }, "Indirizzo (facoltativo)"), h("input", { id: "u_ad", placeholder: "Via, numero, città" }),
     h("label", { for: "u_w" }, "Che intervento è"), h("input", { id: "u_w", placeholder: "Es. Cancello bloccato, quadro saltato" }),
     h("label", { for: "u_done" }, "Cosa hai fatto"), h("textarea", { id: "u_done", rows: "5", placeholder: "Scrivi o detta a voce 🎤" }),
@@ -1032,8 +1032,13 @@ async function urgentForm() {
       const ok = await attempt(async () => {
         const what = $("u_w").value.trim(); if (!what) throw new Error("Scrivi che intervento è stato");
         const cid = $("u_c").value || null, cl = clientsL.find((c) => c.id === cid), day = $("u_day").value || isoDay(new Date());
-        const nm = !cid ? $("u_cn").value.trim() : "";
-        const base = { company_id: S.p.company_id, client_id: cid, address: $("u_ad").value.trim() || (cl && cl.address) || null, created_by: S.p.id };
+        let nm = !cid ? titleCase($("u_cn").value) : "", cid2 = cid;
+        if (nm) {
+          const nn = normT(nm), ex = clientsL.find((c) => normT(c.name) === nn);
+          if (ex) { cid2 = ex.id; nm = ""; }
+          else { const nc = chk(await sb.from("clients").insert({ company_id: S.p.company_id, name: nm, address: $("u_ad").value.trim() || null }).select().single()); cid2 = nc.id; nm = ""; }
+        }
+        const base = { company_id: S.p.company_id, client_id: cid2, address: $("u_ad").value.trim() || (cl && cl.address) || null, created_by: S.p.id };
         const back2 = $("u_back").checked ? "↩️ DA TORNARE" + ($("u_bn").value.trim() ? ": " + $("u_bn").value.trim() : "") : null;
         const job = chk(await sb.from("jobs").insert({ ...base, title: "🚨 " + (nm ? nm + " — " : "") + what, description: back2, status: "done", start_at: new Date().toISOString() }).select().single());
         chk(await sb.from("reports").insert({ company_id: S.p.company_id, user_id: S.p.id, day, job_id: job.id, summary: $("u_done").value.trim() || what, with_ids: [...withSet], materials: [], minutes }));
@@ -2175,7 +2180,7 @@ async function jobView(id) {
     h("h2", {}, "Avanzamento"),
     h("div", { class: "card" },
       h("label", { for: "st", style: "margin-top:0" }, "Stato"),
-      h("select", { id: "st", onchange: reloadAfter(async () => { chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); if (["done", "void"].includes($("st").value)) { S.jobFilter = "open"; back(); } }) }, ["todo", "doing", "done", "void"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
+      h("select", { id: "st", onchange: reloadAfter(async () => { if ($("st").value === "void") { const { count } = await sb.from("reports").select("id", { count: "exact", head: true }).eq("job_id", j.id); if (count && !confirm("Questo lavoro ha " + count + " rapportino/i. Se lo annulli sparisce anche dai rapportini. Annullare comunque?")) { $("st").value = j.status; return; } } chk(await sb.rpc("update_job_progress", { p_job: j.id, p_status: $("st").value, p_notes: $("fn").value })); if (["done", "void"].includes($("st").value)) { S.jobFilter = "open"; back(); } }) }, ["todo", "doing", "done", "void"].map((s) => h("option", { value: s, selected: j.status === s }, STATUS[s]))),
       h("p", { class: "muted", style: "margin:6px 0 0" }, "Quando scegli «Completato» o «Non più necessario» il lavoro si salva da solo e va nell'📦 Archivio."),
       h("label", { for: "fn" }, "Note dal cantiere"),
       h("textarea", { id: "fn", rows: "3", placeholder: "Cosa hai fatto, problemi, cose da ricordare…" }, j.field_notes || ""),
@@ -2422,7 +2427,7 @@ async function clientForm(id) {
     h("button", { class: "primary", onclick: async (e) => {
       e.target.disabled = true;
       const ok = await attempt(async () => {
-        const name = $("cn").value.trim(); if (!name) throw new Error("Inserisci il nome");
+        const name = titleCase($("cn").value); if (!name) throw new Error("Inserisci il nome");
         const p = { name, phone: $("cp").value.trim() || null, email: $("ce").value.trim() || null, address: $("ca").value.trim() || null, notes: $("cno").value.trim() || null };
         const save = async (pp) => { if (id) chk(await sb.from("clients").update(pp).eq("id", id)); else chk(await sb.from("clients").insert({ ...pp, company_id: S.p.company_id })); };
         const cv = $("cc").value || null;
@@ -3182,12 +3187,6 @@ async function hoursView() {
         d.items.map((it) => h("div", { class: "row", style: "padding-top:6px" }, h("span", { class: "muted", style: it.clk && d.rep > 0 ? "text-decoration:line-through" : "" }, it.ico + " " + it.t), h("span", { class: "muted" }, D2(it.m)))),
         d.rep > 0 && d.clk > 0 ? h("div", { class: "muted", style: "font-size:12px;margin-top:6px" }, "Timbrature non sommate: contano le ore del rapportino.") : null)))),
     keys.length ? null : h("p", {}, "Nessuna ora in questo mese."),
-    h("div", { class: "card", style: "margin-top:20px" }, h("strong", {}, "⏱ Timbratura (facoltativa)"),
-      open ? h("div", { class: "note" }, "Sei dentro dalle " + fTime(open.started_at) + " (" + dur(Date.now() - D(open.started_at)) + ")" + (open.jobs && open.jobs.title ? " · " + open.jobs.title : "")) : null,
-      open
-        ? h("button", { class: "primary big out", onclick: act(async () => { await clockOut(); }) }, "Timbra uscita")
-        : [h("label", { for: "hj" }, "Lavoro (facoltativo)"), h("select", { id: "hj" }, h("option", { value: "" }, "— nessuno —"), myJobs.map((j) => h("option", { value: j.id }, j.title))),
-          h("button", { class: "secondary", style: "width:100%", onclick: act(async () => { await clockIn($("hj").value || null); }) }, "Timbra entrata")])
   ];
 }
 
@@ -3699,16 +3698,8 @@ async function homeView() {
       if (vl.length) nodes.push(h("div", { class: "card tap", role: "button", tabindex: "0", onclick: () => go({ t: "vehicles" }) }, h("strong", {}, "Scadenze dei mezzi"), vl.map((w) => h("div", { class: "muted" }, ((w.vehicles && w.vehicles.name) || "Mezzo") + " · " + w.kind + " · " + new Date(w.due_date + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "short" })))));
     } catch { /* sezione non ancora attiva */ }
     if (dl) nodes.push(h("div", { class: "card" }, h("div", { class: "when" }, "Scadenza fiscale · " + dl.date.toLocaleDateString("it-IT", { weekday: "short", day: "numeric", month: "short" })), h("div", {}, dl.label)));
-    let clocked = [];
-    try { clocked = chk(await sb.from("time_entries").select("*").is("ended_at", null)); } catch { /* ore non disponibili */ }
-    if (clocked.length) nodes.push(h("div", { class: "note", style: "margin:0 0 12px" }, "In servizio ora: " + clocked.map((c) => (c.user_id === S.p.id ? "Tu" : nameOf(c.user_id) || "—") + " (dalle " + fTime(c.started_at) + ")").join(", ")));
     nodes.push(h("div", { class: "btns", style: "margin:0 0 6px" }, h("button", { class: "ok", onclick: () => { S.tab = "jobs"; go({ t: "jobForm" }); } }, "+ Lavoro"), h("button", { class: "secondary", onclick: () => { S.tab = "office"; S.off = "quotes"; go({ t: "quoteForm" }); } }, "+ Preventivo")));
   } else {
-    const open1 = chk(await sb.from("time_entries").select("*, jobs(title)").is("ended_at", null));
-    const cur = open1[0];
-    nodes.push(h("div", { class: "card" },
-      h("div", { class: "row" }, h("div", {}, h("strong", {}, cur ? "Sei in servizio" : "Non sei in servizio"), cur ? h("div", { class: "muted" }, "Dalle " + fTime(cur.started_at) + " (" + dur(Date.now() - D(cur.started_at)) + ")" + (cur.jobs?.title ? " · " + cur.jobs.title : "")) : null)),
-      h("button", { class: cur ? "primary out" : "primary", style: "margin-top:10px;height:48px", onclick: async () => { if (await attempt(async () => { if (cur) await clockOut(); else await clockIn(null); })) render(); } }, cur ? "Timbra uscita" : "Timbra entrata")));
   }
   if (!OWNER()) nodes.push(h("div", { class: "btns", style: "margin:0 0 6px" }, h("button", { class: "ok", onclick: () => { S.tab = "jobs"; go({ t: "jobForm" }); } }, "+ Lavoro"), h("button", { class: "secondary", onclick: () => { S.tab = "clients"; go({ t: "clientForm" }); } }, "+ Cliente")));
   nodes.push(h("h2", {}, "Programma di oggi"), today.length ? today.map(jobCard) : h("p", {}, "Niente in programma: giornata libera."));
