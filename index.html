@@ -1111,17 +1111,35 @@ async function stockForm(sub) {
 
 /* ---------- biblioteca tecnica ---------- */
 const LIB_CATS = ["Cancelli e automazioni", "Antenne e TV", "Quadri elettrici", "Allarmi", "Centraline", "Orologi e timer", "Termostati", "Moduli e relè", "Router e rete", "Telecamere", "Sensori", "Altro"];
+const BRAND_DOM = { came: "came.com", nice: "niceforyou.com", bft: "bft-automation.com", faac: "faac.it", beninca: "beninca.com", "bénincà": "beninca.com", somfy: "somfy.it", vimar: "vimar.com", bticino: "bticino.it", legrand: "legrand.it", abb: "abb.com", siemens: "siemens.com", schneider: "se.com", gewiss: "gewiss.com", hikvision: "hikvision.com", dahua: "dahuasecurity.com", ajax: "ajax.systems", urmet: "urmet.com", comelit: "comelit.it", fermax: "fermax.com", ezviz: "ezviz.com", "tp-link": "tp-link.com", ubiquiti: "ui.com", mikrotik: "mikrotik.com", shelly: "shelly.cloud", sonoff: "sonoff.tech", fibaro: "fibaro.com", zennio: "zennio.com", fronius: "fronius.com", sma: "sma.de", huawei: "huawei.com", victron: "victronenergy.com", solaredge: "solaredge.com", goodwe: "goodwe.com", growatt: "growatt.com", ekoenergy: "ekoenergy.it", lutron: "lutron.com", dea: "deasistemi.com", "v2": "v2home.com", cardin: "cardin.it", genius: "geniusg.com", ditec: "ditecentrematic.com", "motorline": "motorline.pt", aprimatic: "aprimatic.com", "key automation": "keyautomation.it", roger: "rogertechnology.it", beta: "betaautomazioni.it", gibidi: "gibidi.com", "profelmnet": "profelmnet.it" };
+const brandDom = (b) => BRAND_DOM[normT(b).trim()] || "";
+const brandIcon = (b, sz) => { const d = brandDom(b), l = String(b || "?").trim().charAt(0).toUpperCase() || "?";
+  const ph = h("span", { style: "display:inline-flex;align-items:center;justify-content:center;width:" + sz + "px;height:" + sz + "px;border-radius:10px;background:#E8ECF8;color:#0B1F5C;font-weight:800;font-size:" + Math.round(sz * 0.5) + "px" }, l);
+  if (!d) return ph;
+  const im = h("img", { src: "https://www.google.com/s2/favicons?domain=" + d + "&sz=128", alt: b, style: "width:" + sz + "px;height:" + sz + "px;object-fit:contain;border-radius:10px;background:#fff" });
+  im.onerror = () => { im.replaceWith(ph); };
+  return im; };
 async function libraryView() {
-  let cat = S.libCat || "all", q = S.libQ || "", favOnly = !!S.libFav;
+  let cat = S.libCat || "all", q = S.libQ || "", favOnly = !!S.libFav, brand = S.libBrand || "";
   const list = h("div"), inp = h("input", { placeholder: "Cerca marca, modello o una parola dentro il manuale…", value: q });
   const load = async () => {
     let qq = sb.from("library").select("id,category,brand,model,title,note,url,file_path,file_name,fav,created_at").order("category").order("title");
     if (cat !== "all") qq = qq.eq("category", cat);
     if (favOnly) qq = qq.eq("fav", true);
+    if (brand === "__none") qq = qq.is("brand", null); else if (brand) qq = qq.ilike("brand", brand.replace(/[\\%_]/g, "\\$&"));
     const t = clean(q);
     if (t) qq = qq.or(["title", "brand", "model", "note", "ocr_text", "category"].map((c) => c + ".ilike.*" + t + "*").join(","));
+    const showTiles = !brand && cat === "all" && !favOnly && !t;
+    if (showTiles) {
+      const all = chk(await sb.from("library").select("brand")), by = {};
+      for (const x of all) { const k = x.brand ? normT(x.brand).trim() : "__none"; (by[k] = by[k] || { name: x.brand ? x.brand.trim() : "Senza marca", key: x.brand ? x.brand.trim() : "__none", n: 0 }).n++; }
+      const arr = Object.values(by).sort((a, b) => (a.key === "__none") - (b.key === "__none") || a.name.localeCompare(b.name));
+      list.replaceChildren(...(arr.length ? [h("div", { class: "grid" }, arr.map((b) => h("button", { class: "sq", onclick: () => { brand = b.key; S.libBrand = brand; drawChips(); load().catch(() => {}); } },
+        h("span", { class: "ic" }, b.key === "__none" ? "📁" : brandIcon(b.name, 44)), h("span", {}, b.name), h("span", { class: "muted", style: "font-weight:400" }, b.n + (b.n === 1 ? " scheda" : " schede"))))), h("p", { class: "muted", style: "margin-top:10px" }, "Tocca una marca per vedere le sue istruzioni, oppure usa le categorie qui sopra.")] : [h("p", {}, "Biblioteca vuota: aggiungi la prima scheda.")]));
+      return;
+    }
     const rows = chk(await qq.limit(80));
-    list.replaceChildren(...(rows.length ? rows.map((r) => h("div", { class: "card" },
+    list.replaceChildren(brand ? h("div", { class: "row", style: "gap:10px;align-items:center;margin-bottom:10px" }, h("button", { class: "secondary", style: "flex:0 0 auto", onclick: () => { brand = ""; S.libBrand = ""; drawChips(); load().catch(() => {}); } }, "← Marche"), brandIcon(brand === "__none" ? "?" : brand, 36), h("strong", { style: "font-size:20px" }, brand === "__none" ? "Senza marca" : brand)) : null, ...(rows.length ? rows.map((r) => h("div", { class: "card" },
       h("div", { class: "row" }, h("div", { class: "tap", style: "flex:1", onclick: () => go({ t: "libForm", id: r.id }) }, h("strong", {}, r.title), h("div", { class: "muted" }, [r.category, r.brand, r.model].filter(Boolean).join(" · "))),
         h("button", { class: "ghost", style: "font-size:22px", "aria-label": "Preferito", onclick: async () => { if (await attempt(async () => { chk(await sb.from("library").update({ fav: !r.fav }).eq("id", r.id)); })) load().catch(() => {}); } }, r.fav ? "★" : "☆")),
       (() => { const P = libParse(r.note); return [P.secs.length ? h("div", { class: "muted", style: "margin-top:4px" }, "📖 " + P.secs.map((x) => x.t).join(" · ")) : null, P.head ? h("div", { class: "muted", style: "white-space:pre-wrap;margin-top:4px" }, P.head.slice(0, 160)) : null]; })(),
