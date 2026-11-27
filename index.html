@@ -471,7 +471,7 @@ function menuGroups() {
     ["Lavoro", A([G("📈", "Andamento", "trend"), T("🔧", "Lavori", "jobs"), T("📅", "Agenda", "cal"), T("👤", "Clienti", "clients"), G("📝", "Rapportini", "reports"), G("🚨", "Urgenti", "urgent"), G("🛒", "Materiale che manca", "manca")])],
     ["Documenti e soldi", A([T("🗂️", "Documenti", "docs"), own ? T("💼", "Ufficio", "office") : null, own ? G("✉️", "Solleciti", "chase") : null])],
     ["Tecnica", A([G("🧰", "Lista materiali", "matai"), G("📐", "Appunti e schemi", "sketch"), G("📦", "Magazzino", "stock"), G("📚", "Biblioteca", "library"), G("🏠", "Impianti", "assets")])],
-    ["Squadra", A([own ? null : T("⏱️", "Le mie ore", "hours"), G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null, G("💬", "Chat", "chat")])],
+    ["Squadra", A([G("🏖️", "Ferie e permessi", "leave"), own ? T("👥", "Team", "team") : null, G("💬", "Chat", "chat")])],
     ["Altro", A([G("🔎", "Cerca", "search"), G("👤", "Il mio profilo", "profile"), own ? G("💾", "Backup", "backup") : null, G("🤖", "Assistente IA", "extra"), G("🔔", "Novità", "news"), G("📣", "Bacheca", "posts"), G("🚐", "Mezzi", "vehicles"), G("🛠️", "Garanzie e manutenzioni", "warr"), G("📻", "Radio", "radio"), G("ℹ️", "Info", "info")])]
   ];
 }
@@ -492,6 +492,13 @@ function trTip(el, text) {
   });
 }
 async function trendView() {
+  const base = await trendView0();
+  if (OWNER()) return base;
+  let hv = [];
+  try { hv = (await hoursView()).slice(1); } catch { /* ore non disponibili */ }
+  return [...base, h("h2", { style: "margin-top:24px" }, "⏱ Le mie ore, giorno per giorno"), ...hv];
+}
+async function trendView0() {
   await loadTeam();
   const P = S.trendP || "m", n = new Date(), own = OWNER();
   const rng = { m: [new Date(n.getFullYear(), n.getMonth(), 1), new Date(n.getFullYear(), n.getMonth() + 1, 1), "Questo mese", new Date(n.getFullYear(), n.getMonth() - 1, 1), "mese scorso"],
