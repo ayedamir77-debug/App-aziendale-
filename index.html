@@ -1155,6 +1155,23 @@ async function libraryView() {
   setTimeout(async () => { try { for (const x of chk(await sb.from("library").select("category"))) if (x.category && !allC.includes(x.category)) allC.push(x.category); drawChips(); } catch { /* resta l'elenco base */ } }, 0);
   return [h("h1", {}, "Biblioteca tecnica"), h("button", { class: "primary", style: "margin-top:0", onclick: () => go({ t: "libForm" }) }, "+ Aggiungi scheda o manuale"), h("div", { style: "margin-top:12px" }, inp), chips, list];
 }
+function manualView(txt) {
+  const B = (t) => h("strong", {}, t), codeRe = /^([A-Z]{1,3}\d{1,3}|\d{1,2}(?:\s?-\s?\d{1,2})?)(?=\s|:|=|-|$)/;
+  const withCode = (head) => { const m = codeRe.exec(head); return m ? [h("span", { style: "display:inline-block;background:#0B1F5C;color:#fff;border-radius:8px;padding:1px 9px;margin-right:8px;font-size:15px" }, m[1]), B(head.slice(m[0].length).replace(/^\s*[-–:]\s*/, ""))] : [B(head)]; };
+  const subs = (arr) => h("div", { style: "margin:6px 0 0 10px;padding-left:12px;border-left:3px solid #4DA3FF" }, arr.map((o) => { const k = o.indexOf(" = "); return h("div", { style: "padding:4px 0;line-height:1.45" }, "• ", k > 0 && k <= 14 ? [B(o.slice(0, k)), " = " + o.slice(k + 3)] : o); }));
+  const out = [];
+  for (const raw of String(txt || "").split("\n")) {
+    const t = raw.trim(); if (!t) continue;
+    let m;
+    if ((m = /^(\d+)[.)]\s+(.*)$/.exec(t))) { out.push(h("div", { style: "display:flex;gap:10px;padding:9px 0;border-top:1px solid #DDE2E6;line-height:1.45" }, h("span", { style: "flex:0 0 28px;height:28px;border-radius:50%;background:#0B1F5C;color:#fff;font-weight:700;display:flex;align-items:center;justify-content:center" }, m[1]), h("span", {}, m[2]))); continue; }
+    if (/^[•*–-]\s+/.test(t)) { out.push(subs([t.replace(/^[•*–-]\s+/, "")])); continue; }
+    const ci = t.indexOf(":"); let head = t, rest = "";
+    if (ci > 0 && ci <= 70) { head = t.slice(0, ci); rest = t.slice(ci + 1).trim(); } else { const ei = t.indexOf(" = "); if (ei > 0 && ei <= 40) { head = t.slice(0, ei); rest = t.slice(ei + 3).trim(); } }
+    const SPL = /\s\/\s(?=[A-Za-z0-9]{1,5}\s*=)/, opts = rest && SPL.test(rest) ? rest.split(SPL).map((x) => x.trim()).filter(Boolean) : null;
+    out.push(h("div", { style: "padding:10px 0;border-top:1px solid #DDE2E6;line-height:1.45" }, h("div", { style: "font-size:17px" }, withCode(head)), opts ? subs(opts) : rest ? h("div", { style: "margin-top:3px" }, rest) : null));
+  }
+  return h("div", {}, out.length ? out : h("p", { class: "muted" }, "Vuota."));
+}
 const libParse = (n) => {
   const t = String(n || ""), i = t.search(/^## /m), secs = [];
   if (i >= 0) for (const blk of t.slice(i).split(/^## /m).slice(1)) { const nl = blk.indexOf("\n"); secs.push({ t: (nl < 0 ? blk : blk.slice(0, nl)).trim(), x: nl < 0 ? "" : blk.slice(nl + 1).trim() }); }
@@ -1178,9 +1195,13 @@ async function libForm(sub) {
     const ti = h("input", { value: sc.t, placeholder: "Titolo sezione", style: "font-weight:700", oninput: () => { sc.t = ti.value; sm.textContent = sc.t || "Senza titolo"; } });
     const mv = (d) => () => { const j = i + d; if (j < 0 || j >= secs.length) return; [secs[i], secs[j]] = [secs[j], secs[i]]; drawS(); };
     const sm = h("summary", { style: "font-weight:700;font-size:18px;cursor:pointer" }, sc.t || "Senza titolo");
-    const d = h("details", { class: "card", ontoggle: () => { sc.open = d.open; } }, sm, ti, ta,
+    if (sc.edit === undefined) sc.edit = !sc.x.trim();
+    const view = h("div", { style: sc.edit ? "display:none" : "" }, manualView(sc.x));
+    const edit = h("div", { style: sc.edit ? "" : "display:none" }, ti, ta,
       h("div", { class: "row", style: "gap:8px;margin-top:6px" }, h("button", { type: "button", class: "secondary", style: "flex:1", onclick: mv(-1) }, "↑ Su"), h("button", { type: "button", class: "secondary", style: "flex:1", onclick: mv(1) }, "↓ Giù"),
         h("button", { type: "button", class: "deny", style: "flex:1", onclick: () => { if (!sc.x.trim() || confirm("Eliminare la sezione «" + (sc.t || "senza titolo") + "»?")) { secs.splice(i, 1); drawS(); } } }, "🗑")));
+    const tg = h("button", { type: "button", class: "secondary", style: "width:100%;margin-top:10px", onclick: () => { sc.edit = !sc.edit; edit.style.display = sc.edit ? "block" : "none"; view.style.display = sc.edit ? "none" : "block"; tg.textContent = sc.edit ? "✔️ Fatto" : "✏️ Modifica"; if (!sc.edit) view.replaceChildren(manualView(sc.x)); } }, sc.edit ? "✔️ Fatto" : "✏️ Modifica");
+    const d = h("details", { class: "card", ontoggle: () => { sc.open = d.open; } }, sm, view, edit, tg);
     if (sc.open || secs.length === 1) d.open = true;
     return d;
   }) : [h("p", { class: "muted" }, "Ancora niente. Fotografa le pagine del manuale: l'IA le scrive qui divise per argomento, poi le foto non servono più.")]),
