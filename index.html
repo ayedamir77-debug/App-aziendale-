@@ -1760,6 +1760,21 @@ async function jobSummaryView(sub) {
 async function signoffView(sub) {
   const j = chk(await sb.from("jobs").select("*, clients(*)").eq("id", sub.job).single()), mats = chk(await sb.from("job_materials").select("*").eq("job_id", j.id).order("created_at"));
   const ms = await jobMs(j);
+  const reps = chk(await sb.from("reports").select("day,summary,materials").eq("job_id", j.id).order("day"));
+  const EMO = /[\u{1F000}-\u{1FFFF}\u{2190}-\u{21FF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu;
+  const clean = (t) => String(t || "").replace(EMO, "").replace(/[ \t]+/g, " ").trim();
+  const stripMk = (t) => String(t || "").split("\n").filter((l) => !/DA TORNARE|MANCA:/.test(l)).join("\n");
+  const mm = {};
+  const addM = (d, q, u) => { if (!d) return; const k = d.trim().toLowerCase() + "|" + (u || "").trim().toLowerCase(), e = mm[k] = mm[k] || { desc: d.trim(), unit: (u || "").trim(), qty: 0, has: false }; if (q != null && q !== "") { e.qty += Number(q); e.has = true; } };
+  for (const m of mats) addM(m.description, m.quantity, m.unit);
+  for (const r of reps) for (const m of (Array.isArray(r.materials) ? r.materials : []).filter((x) => x.src !== "recuperato")) addM(m.desc, m.qty, m.unit);
+  const matList = Object.values(mm).sort((a, b) => a.desc.localeCompare(b.desc));
+  const matTxt = (m) => m.desc + (m.has ? " – " + (Math.round(m.qty * 100) / 100) + (m.unit ? " " + m.unit : "") : "");
+  const bul = (t) => clean(t).split("\n").map((l) => l.replace(/^\s*[•\-–*]+\s*/, "").trim()).filter(Boolean);
+  const dayN = (d) => new Date(d + "T12:00").toLocaleDateString("it-IT", { day: "numeric", month: "long" });
+  const withSum = reps.filter((r) => r.summary && bul(r.summary).length), manyDays = new Set(withSum.map((r) => r.day)).size > 1;
+  let pre = withSum.map((r) => (manyDays ? dayN(r.day) + ":\n" : "") + bul(r.summary).map((l) => "• " + l).join("\n")).join("\n\n");
+  if (!pre) pre = bul(stripMk(j.field_notes || j.description || "")).map((l) => "• " + l).join("\n");
   const cv = h("canvas", { width: "600", height: "260", style: "width:100%;height:auto;background:#fff;border:1px solid #C9D0D6;border-radius:10px;touch-action:none" });
   const g = cv.getContext("2d"); g.lineWidth = 3; g.lineCap = "round"; g.strokeStyle = "#14202B"; let drawing = false, signed = false;
   const pt = (e) => { const r = cv.getBoundingClientRect(); return [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; };
@@ -1768,17 +1783,17 @@ async function signoffView(sub) {
   const stop = () => { drawing = false; }; cv.addEventListener("pointerup", stop); cv.addEventListener("pointercancel", stop);
   const say = h("p", { class: "muted" });
   return [h("h1", {}, "Rapporto e firma"), h("p", { class: "muted" }, j.title + (j.clients ? " · " + j.clients.name : "")),
-    h("label", { for: "s_w", style: "margin-top:0" }, "Lavori eseguiti"), h("textarea", { id: "s_w", rows: "5" }, j.field_notes || j.description || ""),
-    h("p", { class: "muted" }, "Materiale: " + (mats.length ? mats.map((m) => m.description + (m.quantity != null ? " (" + Number(m.quantity) + (m.unit ? " " + m.unit : "") + ")" : "")).join(", ") : "—") + (ms ? " · Ore: " + dur(ms) : "")),
+    h("label", { for: "s_w", style: "margin-top:0" }, "Lavori eseguiti"), h("textarea", { id: "s_w", rows: "9" }, pre),
+    h("p", { class: "muted", style: "font-size:13px" }, "Un punto per riga, con • davanti. Controlla e correggi prima di far firmare: è quello che leggerà il cliente."),
+    h("div", { class: "card" }, h("strong", {}, "Materiale utilizzato"), matList.length ? matList.map((m) => h("div", { class: "muted" }, "• " + matTxt(m))) : h("div", { class: "muted" }, "—"), ms ? h("div", { class: "muted", style: "margin-top:6px" }, "Ore di lavoro: " + dur(ms)) : null),
     h("label", { for: "s_n" }, "Nome di chi firma"), h("input", { id: "s_n", value: j.clients ? j.clients.name : "" }),
     h("label", {}, "Firma del cliente (con il dito)"), cv,
     h("button", { class: "ghost", onclick: () => { g.clearRect(0, 0, cv.width, cv.height); signed = false; } }, "Cancella firma"), say,
     h("button", { class: "primary", onclick: async (e) => { e.target.disabled = true; const ok = await attempt(async () => {
       if (!signed) throw new Error("Serve la firma del cliente");
       const work = $("s_w").value.trim(), signer = $("s_n").value.trim(), today = new Date().toLocaleDateString("it-IT", { day: "numeric", month: "long", year: "numeric" });
-      const blocks = [{ h: "Rapporto di intervento" }, { t: "Data: " + today }, { t: "Lavoro: " + j.title }, j.clients ? { t: "Cliente: " + j.clients.name + (j.clients.address ? " – " + j.clients.address : "") } : null,
-        { h: "Lavori eseguiti" }, { t: work || "—" }, { h: "Materiale utilizzato" }, { t: mats.length ? mats.map((m) => "• " + m.description + (m.quantity != null ? " – " + Number(m.quantity) + (m.unit ? " " + m.unit : "") : "")).join("\n") : "—" }, ms ? { t: "Ore di lavoro registrate: " + dur(ms) } : null,
-        { h: "Firma per accettazione" }, { t: signer || "" }].filter(Boolean);
+      const cl = j.clients, kv = [["Data", today], ["Lavoro", clean(j.title)], cl ? ["Cliente", clean(cl.name)] : null, cl && cl.address ? ["Indirizzo", clean(cl.address)] : (j.address ? ["Indirizzo", clean(j.address)] : null), ms ? ["Ore di lavoro", dur(ms)] : null].filter(Boolean);
+      const blocks = [{ title: "Rapporto di intervento" }, { kv }, { h: "Lavori eseguiti" }, { li: clean(work || "—") }, { h: "Materiale utilizzato" }, matList.length ? { li: matList.map((m) => "• " + matTxt(m)).join("\n") } : { t: "Nessun materiale registrato." }, { h: "Firma per accettazione" }, signer ? { t: "Il cliente: " + signer } : null].filter(Boolean);
       say.textContent = "Creo il PDF…";
       const blob = await simplePdf(blocks, cv);
       const file = new File([blob], "Rapporto.pdf", { type: "application/pdf" });
@@ -1797,8 +1812,12 @@ async function simplePdf(blocks, sig) {
   g.font = "bold 44px " + FONT; g.fillText(c0.name || "", M, y); y += 60;
   g.font = "22px " + FONT; g.fillStyle = "#4E5A66"; for (const l of [c0.vat_number ? "P.IVA " + c0.vat_number : "", c0.address || "", [c0.phone, c0.email].filter(Boolean).join("  ·  ")].filter(Boolean)) { g.fillText(l, M, y); y += 30; }
   g.fillStyle = "#14202B"; y += 30;
+  const rule = () => { g.strokeStyle = "#E1E5E9"; g.lineWidth = 2; g.beginPath(); g.moveTo(M, y); g.lineTo(W - M, y); g.stroke(); };
   for (const b of blocks) {
-    if (b.h) { if (y > H - 300) newPage(); y += 16; g.font = "bold 30px " + FONT; g.fillText(b.h, M, y); y += 46; }
+    if (b.title) { g.font = "bold 52px " + FONT; g.fillStyle = "#14202B"; g.fillText(b.title, M, y); y += 74; }
+    else if (b.kv) { g.fillStyle = "#F4F6F8"; const hh = b.kv.length * 44 + 28; g.fillRect(M, y, W - 2 * M, hh); y += 16; for (const [k, v] of b.kv) { g.font = "bold 24px " + FONT; g.fillStyle = "#4E5A66"; g.fillText(k, M + 24, y); g.font = "24px " + FONT; g.fillStyle = "#14202B"; const vl = wrap(v, W - 2 * M - 260)[0] || ""; g.fillText(vl, M + 240, y); y += 44; } y += 24; }
+    else if (b.li) { g.font = "26px " + FONT; for (const raw of b.li.split("\n")) { const t = raw.trim(); if (!t) { y += 14; continue; } const bl = /^•\s*/.test(t), txt = t.replace(/^•\s*/, ""), head = !bl && /:$/.test(txt); g.font = (head ? "bold " : "") + "26px " + FONT; const ls = wrap(txt, W - 2 * M - (bl ? 40 : 0)); if (head) y += 8; ls.forEach((l, i) => { if (y > H - M - 40) { newPage(); g.font = (head ? "bold " : "") + "26px " + FONT; } g.fillStyle = "#14202B"; if (bl && i === 0) g.fillText("•", M + 6, y); g.fillText(l, M + (bl ? 40 : 0), y); y += 38; }); y += bl ? 6 : 2; } }
+    else if (b.h) { if (y > H - 300) newPage(); y += 20; g.font = "bold 30px " + FONT; g.fillStyle = "#14202B"; g.fillText(b.h, M, y); y += 42; rule(); y += 18; }
     else { g.font = "24px " + FONT; for (const l of wrap(b.t, W - 2 * M)) { if (y > H - M - 40) { newPage(); g.font = "24px " + FONT; } g.fillText(l, M, y); y += 34; } }
   }
   if (sig) { if (y > H - 380) newPage(); y += 10; g.fillStyle = "#fff"; g.fillRect(M, y, 520, 226); g.drawImage(sig, M, y, 520, 226); g.strokeStyle = "#C9D0D6"; g.lineWidth = 2; g.strokeRect(M, y, 520, 226); }
